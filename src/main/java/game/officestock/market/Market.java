@@ -24,7 +24,8 @@ public final class Market {
     private static final double TRUE_RUMOR_CHANCE = 0.7;
     private static final double CLOSING_VOLATILITY = 2.5;
 
-    public record NewsItem(int number, String kind, String headline) {}
+    /** @param kind "news"(속보) 또는 "rumor"(찌라시) @param symbol 관련 종목 코드 */
+    public record NewsItem(int number, String kind, String symbol, String headline) {}
 
     private static final List<String> GOOD_RUMORS = List.of(
             "%s 쪽에 좋은 소식이 곧 나온다는 얘기가 돈다",
@@ -39,25 +40,32 @@ public final class Market {
     private final Map<String, StockPool> pools = new LinkedHashMap<>();
     private final Map<String, PriceDrift> drifts = new LinkedHashMap<>();
     private final List<NewsItem> history = new ArrayList<>();
-    private List<MarketNews> deck = MarketNews.shuffledDeck();
+    private final StockCatalog catalog;
+    private List<MarketNews> deck;
     private String trueRumorSymbol;
     private final long closingTick;
 
-    /** @param sessionSeconds 출근부터 퇴근까지 길이. 마지막 2분이 장 마감 구간이다. */
-    public Market(RandomGenerator random, long sessionSeconds) {
+    /**
+     * 종목과 뉴스는 모두 catalog에서 온다. 종목 코드(id)를 키로 쓴다.
+     * @param sessionSeconds 출근부터 퇴근까지 길이. 마지막 2분이 장 마감 구간이다.
+     */
+    public Market(StockCatalog catalog, RandomGenerator random, long sessionSeconds) {
+        this.catalog = catalog;
         this.random = random;
         this.closingTick = Math.max(0, sessionSeconds - CLOSING_WINDOW_SECONDS) / TICK_SECONDS;
-        // 초당 흔들림. 2초 간격일 때의 1.5%·2.5%·0.8%와 같은 세기다.
-        add("민트식품", 0.0106);
-        add("달나라로봇", 0.0177);
-        add("우리회사", 0.0057);
+        for (var stock : catalog.stocks()) {
+            pools.put(stock.id(), new StockPool(stock.poolShares(),
+                    Math.multiplyExact(stock.poolShares(), stock.startPriceWon())));
+            drifts.put(stock.id(), new PriceDrift(stock.startPriceWon(), stock.volatilityPerSecond()));
+        }
+        deck = MarketNews.shuffledDeck(catalog, random);
     }
 
-    private void add(String symbol, double volatility) {
-        pools.put(symbol, new StockPool(1_000, 1_000_000));
-        drifts.put(symbol, new PriceDrift(1_000, volatility));
+    public StockCatalog catalog() {
+        return catalog;
     }
 
+    /** @return 종목 코드에 해당하는 풀, 없으면 null */
     public StockPool pool(String symbol) {
         return pools.get(symbol);
     }
@@ -91,7 +99,7 @@ public final class Market {
     }
 
     private MarketNews upcoming() {
-        if (deck.isEmpty()) deck = MarketNews.shuffledDeck();
+        if (deck.isEmpty()) deck = MarketNews.shuffledDeck(catalog, random);
         return deck.getLast();
     }
 
@@ -105,17 +113,20 @@ public final class Market {
             trueRumorSymbol = symbol;
         } else {
             // 가짜: 다가오는 뉴스와 종목이나 방향 중 하나 이상이 다르다.
-            var symbols = List.copyOf(pools.keySet());
+            // 세기는 그 종목의 뉴스 카드 중 하나를 골라 비슷하게 맞춘다.
+            var stocks = catalog.stocks();
             do {
-                symbol = symbols.get(random.nextInt(symbols.size()));
-                changePercent = (random.nextBoolean() ? 1 : -1) * random.nextInt(5, 13);
+                var stock = stocks.get(random.nextInt(stocks.size()));
+                var sample = stock.news().get(random.nextInt(stock.news().size()));
+                symbol = stock.id();
+                changePercent = (random.nextBoolean() ? 1 : -1) * Math.abs(sample.changePercent());
             } while (symbol.equals(next.symbol())
                     && Integer.signum(changePercent) == Integer.signum(next.changePercent()));
         }
         drifts.get(symbol).onRumor(changePercent, RUMOR_LEAD_TICKS);
         var templates = changePercent > 0 ? GOOD_RUMORS : BAD_RUMORS;
-        var text = templates.get(random.nextInt(templates.size())).formatted(symbol);
-        history.add(new NewsItem(history.size() + 1, "rumor", text));
+        var text = templates.get(random.nextInt(templates.size())).formatted(catalog.stock(symbol).name());
+        history.add(new NewsItem(history.size() + 1, "rumor", symbol, text));
     }
 
     private void publishNews() {
@@ -125,7 +136,7 @@ public final class Market {
         boolean rumored = news.symbol().equals(trueRumorSymbol);
         trueRumorSymbol = null;
         drifts.get(news.symbol()).onNews(news.changePercent(), rumored, random);
-        history.add(new NewsItem(history.size() + 1, "news",
-                news.symbol() + " · " + news.headline()));
+        history.add(new NewsItem(history.size() + 1, "news", news.symbol(),
+                catalog.stock(news.symbol()).name() + " · " + news.headline()));
     }
 }

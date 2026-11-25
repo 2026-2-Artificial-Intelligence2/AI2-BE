@@ -16,18 +16,24 @@ final class PriceDrift {
     private static final double FLOW_DECAY = perTick(0.922);
     /** 찌라시가 진짜 뉴스 전까지 미리 반영하는 몫. */
     private static final double RUMOR_SHARE = 0.4;
-    private static final double MIN_FAIR = 100, MAX_FAIR = 10_000;
 
     /** 틱당 표준편차. 생성자에는 초당 값을 받는다. */
     private final double volatility;
+    /** 적정가는 시작가의 1/10~10배, 목표가는 1/20~20배 안에 머문다. */
+    private final double minFair, maxFair;
+    private final long minTarget, maxTarget;
     private double fairWon;
     private double noise;
     private double impulse;
     private double rumorDrift;
     private double flow;
 
-    PriceDrift(double fairWon, double volatility) {
-        this.fairWon = fairWon;
+    PriceDrift(long startPriceWon, double volatility) {
+        this.fairWon = startPriceWon;
+        this.minFair = startPriceWon / 10.0;
+        this.maxFair = startPriceWon * 10.0;
+        this.minTarget = Math.max(1, startPriceWon / 20);
+        this.maxTarget = startPriceWon * 20;
         this.volatility = volatility * Math.sqrt(Market.TICK_SECONDS);
     }
 
@@ -41,7 +47,7 @@ final class PriceDrift {
         impulse = impulse * IMPULSE_DECAY + rumorDrift;
         flow *= FLOW_DECAY;
         double target = fairWon * Math.exp(noise + impulse + flow);
-        return Math.clamp(Math.round(target), 50L, 20_000L);
+        return Math.clamp(Math.round(target), minTarget, maxTarget);
     }
 
     /**
@@ -50,7 +56,7 @@ final class PriceDrift {
      */
     Reaction onNews(int changePercent, boolean rumoredBefore, RandomGenerator random) {
         double move = Math.log1p(changePercent / 100.0);
-        fairWon = Math.clamp(fairWon * (1 + changePercent / 100.0), MIN_FAIR, MAX_FAIR);
+        fairWon = Math.clamp(fairWon * (1 + changePercent / 100.0), minFair, maxFair);
         rumorDrift = 0;
         double roll = random.nextDouble();
         if (rumoredBefore && roll < 0.4) {

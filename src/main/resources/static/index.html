@@ -165,6 +165,9 @@
   // 서버 StockPool과 같은 계산: 풀에 남는 현금을 올림하므로 매수 대금은 올림, 매도 대금은 내림.
   let pools = {};
   let holdingsNow = {};
+  // 서버는 종목을 코드(MINT 등)로 주고받는다. 화면에는 catalog 메시지로 받은 이름을 보여준다.
+  let stocks = [];
+  const stockName = id => stocks.find(s => s.id === id)?.name ?? id;
   let cashNow = 0n;
   const ceilDiv = (a, b) => (a + b - 1n) / b;
   function quote(symbol, quantity) {
@@ -249,7 +252,7 @@
     body.replaceChildren();
     for (const row of standings) {
       const tr = body.insertRow();
-      const holdings = Object.entries(row.holdings).map(([s, q]) => s + ' ' + q + '주').join(', ') || '없음';
+      const holdings = Object.entries(row.holdings).map(([s, q]) => stockName(s) + ' ' + q + '주').join(', ') || '없음';
       for (const text of [row.rank + '위', row.player + (row.player === you ? ' (나)' : ''),
           won(row.netWorthWon), won(row.cashWon), won(row.stockValueWon),
           won(row.workIncomeWon) + ' (' + row.completedTasks + '건)', holdings]) {
@@ -262,7 +265,7 @@
     el('tradesEmpty').hidden = trades.length > 0;
     for (const t of trades) {
       const tr = log.insertRow();
-      for (const text of [clockText(t.second), t.player, t.symbol, t.side, t.quantity + '주', won(t.amountWon)]) {
+      for (const text of [clockText(t.second), t.player, stockName(t.symbol), t.side, t.quantity + '주', won(t.amountWon)]) {
         tr.insertCell().textContent = text;
       }
     }
@@ -290,15 +293,15 @@
       popupTimer = setTimeout(() => { news.hidden = true; }, 4000);
       requestHistory();
     }
-    const symbols = Object.keys(prices).sort((a, b) => a.localeCompare(b, 'ko'));
+    const symbols = stocks.map(s => s.id).filter(id => id in prices);
     const select = el('symbol');
     if (select.options.length === 0) {
-      for (const symbol of symbols) select.add(new Option(symbol, symbol));
+      for (const symbol of symbols) select.add(new Option(stockName(symbol), symbol));
     }
     el('quotes').replaceChildren();
     for (const symbol of symbols) {
       const row = el('quotes').insertRow();
-      row.insertCell().textContent = symbol;
+      row.insertCell().textContent = stockName(symbol);
       row.insertCell().textContent = won(prices[symbol]);
       row.insertCell().textContent = (holdings[symbol] ?? 0) + '주';
     }
@@ -333,13 +336,15 @@
       showView('MEETING');
     } else if (message.type === 'market') {
       renderMarket(message);
+    } else if (message.type === 'catalog') {
+      stocks = message.stocks;
     } else if (message.type === 'result') {
       renderResults(message);
     } else if (message.type === 'newsHistory') {
       renderHistory(message.items);
     } else if (message.type === 'fill') {
       el('fill').textContent =
-        message.symbol + ' ' + message.quantity + '주 ' + message.side +
+        stockName(message.symbol) + ' ' + message.quantity + '주 ' + message.side +
         ' 체결 · 총 ' + won(message.amount);
     } else if (message.type === 'work') {
       const {task, balance, rewardWon} = message.desk;

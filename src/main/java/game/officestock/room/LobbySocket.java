@@ -2,6 +2,7 @@ package game.officestock.room;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import game.officestock.market.Market;
+import game.officestock.market.StockCatalog;
 import game.officestock.market.StockPool;
 import game.officestock.player.WorkDesk;
 import java.io.IOException;
@@ -41,8 +42,11 @@ public class LobbySocket extends TextWebSocketHandler {
     private final long workRewardWon;
     private final long sessionSeconds;
     private final PlaytestLog playtest;
+    private final StockCatalog catalog;
+    /** 화면이 종목 코드를 이름으로 바꿀 수 있게 게임 시작 때 보내는 목록. */
+    private final List<Map<String, String>> catalogMessage;
 
-    public LobbySocket(ObjectMapper json, PlaytestLog playtest,
+    public LobbySocket(ObjectMapper json, PlaytestLog playtest, StockCatalog catalog,
             @Value("${game.starting-cash-won}") long startingCashWon,
             @Value("${game.work-reward-won}") long workRewardWon,
             @Value("${game.session-seconds}") long sessionSeconds) {
@@ -54,6 +58,9 @@ public class LobbySocket extends TextWebSocketHandler {
         this.workRewardWon = workRewardWon;
         this.json = json;
         this.playtest = playtest;
+        this.catalog = catalog;
+        this.catalogMessage = catalog.stocks().stream()
+                .map(s -> Map.of("id", s.id(), "name", s.name())).toList();
     }
 
     private static final class Lobby {
@@ -73,10 +80,10 @@ public class LobbySocket extends TextWebSocketHandler {
         boolean finished;
         Thread marketClock;
 
-        Lobby(String code, UUID host, long sessionSeconds) {
+        Lobby(String code, UUID host, StockCatalog catalog, long sessionSeconds) {
             this.code = code;
             this.game = new GameRoom(host);
-            this.market = new Market(new SplittableRandom(), sessionSeconds);
+            this.market = new Market(catalog, new SplittableRandom(), sessionSeconds);
             this.sessionTicks = sessionSeconds / Market.TICK_SECONDS;
         }
     }
@@ -138,6 +145,7 @@ public class LobbySocket extends TextWebSocketHandler {
                         lobby.labels.putIfAbsent(entry.getKey(), "P" + (players.indexOf(entry.getKey()) + 1));
                         var desk = lobby.desks.computeIfAbsent(entry.getKey(),
                                 id -> new WorkDesk(startingCashWon, workRewardWon, now));
+                        send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage));
                         sendDesk(entry.getValue(), desk);
                     }
                     broadcastMarket(lobby);
@@ -280,7 +288,7 @@ public class LobbySocket extends TextWebSocketHandler {
     private void broadcastMarket(Lobby lobby) throws IOException {
         var history = lobby.market.history();
         var latest = history.isEmpty()
-                ? new Market.NewsItem(0, "news", "") : history.getLast();
+                ? new Market.NewsItem(0, "news", "", "") : history.getLast();
         var prices = new HashMap<String, Long>();
         var pools = new HashMap<String, StockPool.Reserves>();
         lobby.market.pools().forEach((symbol, pool) -> {
@@ -311,7 +319,7 @@ public class LobbySocket extends TextWebSocketHandler {
         var host = UUID.randomUUID();
         while (true) {
             var code = Integer.toString(100_000 + random.nextInt(900_000));
-            var lobby = new Lobby(code, host, sessionSeconds);
+            var lobby = new Lobby(code, host, catalog, sessionSeconds);
             lobby.lock.lock();
             try {
                 if (rooms.putIfAbsent(code, lobby) != null) continue;
