@@ -1,26 +1,131 @@
 {
   "news": [
-    { "stock": "MINT", "changePercent": 10, "headline": "편의점 3사, 민트초코 라면 추가 발주" },
-    { "stock": "MINT", "changePercent": -8, "headline": "신제품 포장 불량으로 출고 지연" },
-    { "stock": "MINT", "changePercent": 6, "headline": "급식 납품 계약 체결" },
-    { "stock": "MINT", "changePercent": -6, "headline": "원재료 수입 단가 상승" },
-    { "stock": "MINT", "changePercent": 8, "headline": "해외 시식 행사에서 초도 물량 완판" },
-    { "stock": "MINT", "changePercent": -7, "headline": "대형마트 판촉 행사 취소" },
-    { "stock": "MINT", "changePercent": 5, "headline": "생산라인 개선으로 포장비 절감" },
-    { "stock": "MOON", "changePercent": 14, "headline": "물류 로봇 대규모 공급 계약 체결" },
-    { "stock": "MOON", "changePercent": -12, "headline": "시연 중 로봇 팔 멈춰 재점검" },
-    { "stock": "MOON", "changePercent": 9, "headline": "야간 배송 로봇 실증 승인" },
-    { "stock": "MOON", "changePercent": -9, "headline": "핵심 센서 납품 일정 연기" },
-    { "stock": "MOON", "changePercent": 12, "headline": "신형 배터리 주행 시험 통과" },
-    { "stock": "MOON", "changePercent": -11, "headline": "주력 모델 무상 수리 확대" },
-    { "stock": "MOON", "changePercent": 7, "headline": "창고 자동화 시범 사업 선정" },
-    { "stock": "OURS", "changePercent": 8, "headline": "최대 고객사와 계약 갱신" },
-    { "stock": "OURS", "changePercent": -7, "headline": "분기 납품 일정 차질" },
-    { "stock": "OURS", "changePercent": 6, "headline": "사내 시제품 첫 유료 고객 확보" },
-    { "stock": "OURS", "changePercent": -5, "headline": "신사옥 이전 비용 예상 초과" },
-    { "stock": "OURS", "changePercent": 9, "headline": "해외 지사 첫 흑자 발표" },
-    { "stock": "OURS", "changePercent": -8, "headline": "주요 입찰에서 경쟁사에 밀려" },
-    { "stock": "OURS", "changePercent": 5, "headline": "장기 유지보수 계약 추가 수주" }
+    {
+      "stock": "MINT",
+      "changePercent": 10,
+      "headline": "편의점 3사, 민트초코 라면 추가 발주",
+      "body": "출시 2주 만에 초도 물량이 동나자 편의점 3사가 일제히 추가 발주를 넣었다. 업계에서는 호불호를 내세운 마케팅이 통했다는 평가가 나온다."
+    },
+    {
+      "stock": "MINT",
+      "changePercent": -8,
+      "headline": "신제품 포장 불량으로 출고 지연",
+      "body": "신제품 컵 뚜껑이 제대로 닫히지 않는 불량이 발견돼 출고가 일주일가량 미뤄졌다. 회사는 전량 재포장한 뒤 출고하겠다고 밝혔다."
+    },
+    {
+      "stock": "MINT",
+      "changePercent": 6,
+      "headline": "급식 납품 계약 체결",
+      "body": "수도권 학교 급식에 디저트류를 납품하는 1년 계약을 따냈다. 규모는 크지 않지만 안정적인 매출처라는 평가다."
+    },
+    {
+      "stock": "MINT",
+      "changePercent": -6,
+      "headline": "원재료 수입 단가 상승",
+      "body": "주원료인 페퍼민트 오일의 수입 단가가 산지 작황 부진으로 올랐다. 당분간 제품 가격을 올리기 어려워 이익이 줄어들 전망이다."
+    },
+    {
+      "stock": "MINT",
+      "changePercent": 8,
+      "headline": "해외 시식 행사에서 초도 물량 완판",
+      "body": "동남아 대형마트 시식 행사에서 준비한 물량이 사흘 만에 모두 팔렸다. 현지 유통사가 정식 입점을 검토하고 있다."
+    },
+    {
+      "stock": "MINT",
+      "changePercent": -7,
+      "headline": "대형마트 판촉 행사 취소",
+      "body": "다음 달로 예정됐던 대형마트 기획전이 마트 측 사정으로 취소됐다. 행사용으로 만들어 둔 재고를 처리하는 일이 숙제로 남았다."
+    },
+    {
+      "stock": "MINT",
+      "changePercent": 5,
+      "headline": "생산라인 개선으로 포장비 절감",
+      "body": "포장 공정을 자동화해 개당 포장비를 줄였다. 효과는 작지만 꾸준히 이익에 보탬이 될 것으로 보인다."
+    },
+    {
+      "stock": "MOON",
+      "changePercent": 14,
+      "headline": "물류 로봇 대규모 공급 계약 체결",
+      "body": "국내 대형 물류사와 창고용 로봇 수백 대를 공급하는 계약을 맺었다. 회사 설립 이후 최대 규모의 계약이다."
+    },
+    {
+      "stock": "MOON",
+      "changePercent": -12,
+      "headline": "시연 중 로봇 팔 멈춰 재점검",
+      "body": "투자자 대상 공개 시연에서 로봇 팔이 상자를 든 채 멈추는 장면이 그대로 생중계됐다. 회사는 소프트웨어 오류라며 전 제품 점검에 들어갔다."
+    },
+    {
+      "stock": "MOON",
+      "changePercent": 9,
+      "headline": "야간 배송 로봇 실증 승인",
+      "body": "도심 야간 배송 로봇의 실제 도로 시험 운행이 승인됐다. 상용화까지는 시간이 걸리지만 첫 관문을 넘었다는 평가다."
+    },
+    {
+      "stock": "MOON",
+      "changePercent": -9,
+      "headline": "핵심 센서 납품 일정 연기",
+      "body": "로봇의 눈 역할을 하는 라이다 센서의 해외 납품이 두 달 미뤄졌다. 이번 분기 출하량이 계획보다 줄어들 수 있다."
+    },
+    {
+      "stock": "MOON",
+      "changePercent": 12,
+      "headline": "신형 배터리 주행 시험 통과",
+      "body": "한 번 충전으로 기존보다 훨씬 오래 달리는 신형 배터리가 인증 시험을 통과했다. 경쟁사와의 기술 격차를 벌렸다는 분석이 나온다."
+    },
+    {
+      "stock": "MOON",
+      "changePercent": -11,
+      "headline": "주력 모델 무상 수리 확대",
+      "body": "주력 모델의 바퀴 모터가 과열되는 문제로 무상 수리 대상을 전체 판매분으로 넓혔다. 수리 비용은 이번 분기 실적에 반영된다."
+    },
+    {
+      "stock": "MOON",
+      "changePercent": 7,
+      "headline": "창고 자동화 시범 사업 선정",
+      "body": "정부의 중소 물류창고 자동화 시범 사업자로 뽑혔다. 사업비 일부를 지원받으며 납품 실적을 쌓을 기회다."
+    },
+    {
+      "stock": "OURS",
+      "changePercent": 8,
+      "headline": "최대 고객사와 계약 갱신",
+      "body": "매출의 큰 부분을 차지하는 최대 고객사와 3년 계약을 다시 맺었다. 고객 이탈 걱정이 사라지면서 사내 분위기도 밝아졌다."
+    },
+    {
+      "stock": "OURS",
+      "changePercent": -7,
+      "headline": "분기 납품 일정 차질",
+      "body": "개발 일정이 밀리면서 이번 분기 납품 두 건이 다음 분기로 넘어갔다. 오늘 부장님 회의는 길어질 것으로 보인다."
+    },
+    {
+      "stock": "OURS",
+      "changePercent": 6,
+      "headline": "사내 시제품 첫 유료 고객 확보",
+      "body": "사내 해커톤에서 시작한 시제품이 첫 유료 고객을 얻었다. 금액은 작지만 신사업의 가능성을 보여줬다."
+    },
+    {
+      "stock": "OURS",
+      "changePercent": -5,
+      "headline": "신사옥 이전 비용 예상 초과",
+      "body": "신사옥 인테리어 공사비가 예산을 넘어섰다. 회사는 일부 층의 공사를 미루는 방안을 검토하고 있다."
+    },
+    {
+      "stock": "OURS",
+      "changePercent": 9,
+      "headline": "해외 지사 첫 흑자 발표",
+      "body": "설립 3년 만에 해외 지사가 처음으로 분기 흑자를 냈다. 본사 실적에도 보탬이 될 전망이다."
+    },
+    {
+      "stock": "OURS",
+      "changePercent": -8,
+      "headline": "주요 입찰에서 경쟁사에 밀려",
+      "body": "올해 가장 기대했던 공공기관 입찰에서 경쟁사에 밀렸다. 영업팀은 가격 경쟁력에서 졌다고 분석했다."
+    },
+    {
+      "stock": "OURS",
+      "changePercent": 5,
+      "headline": "장기 유지보수 계약 추가 수주",
+      "body": "기존 고객사의 시스템 유지보수를 5년 더 맡게 됐다. 큰 폭은 아니지만 꾸준한 매출이 보장된다."
+    }
   ],
   "rumors": {
     "good": [

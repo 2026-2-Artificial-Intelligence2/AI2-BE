@@ -18,8 +18,13 @@ public record NewsCatalog(List<Card> news, Rumors rumors) {
      * @param stock 종목 코드(stocks.json의 id)
      * @param changePercent 적정가 변화율(%). 0이 아니고 -100보다 커야 한다.
      * @param headline 화면에 보이는 제목. 앞에 종목 이름이 자동으로 붙는다.
+     * @param body 본문(선택). 알림창에서 제목 아래에 보인다. 비워 두면 제목만 보인다.
      */
-    public record Card(String stock, int changePercent, String headline) {}
+    public record Card(String stock, int changePercent, String headline, String body) {
+        public Card {
+            if (body != null && body.isBlank()) body = null;
+        }
+    }
 
     /** 찌라시 문구. 각 문장에 {name}이 있어야 한다. good은 호재, bad는 악재 소문이다. */
     public record Rumors(List<String> good, List<String> bad) {}
@@ -78,6 +83,8 @@ public record NewsCatalog(List<Card> news, Rumors rumors) {
             c[card.changePercent() > 0 ? 0 : 1]++;
             c[2] += card.changePercent();
         }
+        long withoutBody = news.stream().filter(card -> card.body() == null).count();
+        if (withoutBody > 0) lines.add("본문 없는 뉴스 " + withoutBody + "장 (알림창에 제목만 보인다)");
         for (Map.Entry<String, int[]> e : counts.entrySet()) {
             var c = e.getValue();
             int total = c[0] + c[1];

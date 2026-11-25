@@ -213,7 +213,15 @@
     for (const item of [...items].reverse()) {
       const row = document.createElement('li');
       row.value = item.number;
-      row.textContent = newsLabel(item.kind) + item.headline;
+      const title = document.createElement('strong');
+      title.textContent = newsLabel(item.kind) + item.headline;
+      row.append(title);
+      if (item.body) {
+        const body = document.createElement('p');
+        body.textContent = item.body;
+        body.style.margin = '.25rem 0 .75rem';
+        row.append(body);
+      }
       list.append(row);
     }
   }

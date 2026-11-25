@@ -24,8 +24,12 @@ public final class Market {
     private static final double TRUE_RUMOR_CHANCE = 0.7;
     private static final double CLOSING_VOLATILITY = 2.5;
 
-    /** @param kind "news"(속보) 또는 "rumor"(찌라시) @param symbol 관련 종목 코드 */
-    public record NewsItem(int number, String kind, String symbol, String headline) {}
+    /**
+     * @param kind "news"(속보) 또는 "rumor"(찌라시)
+     * @param symbol 관련 종목 코드
+     * @param body 본문. 찌라시나 본문 없는 뉴스는 null
+     */
+    public record NewsItem(int number, String kind, String symbol, String headline, String body) {}
 
     private final RandomGenerator random;
     private final Map<String, StockPool> pools = new LinkedHashMap<>();
@@ -121,7 +125,7 @@ public final class Market {
         var phrases = changePercent > 0 ? news.rumors().good() : news.rumors().bad();
         var text = phrases.get(random.nextInt(phrases.size()))
                 .replace(NewsCatalog.NAME, catalog.stock(symbol).name());
-        history.add(new NewsItem(history.size() + 1, "rumor", symbol, text));
+        history.add(new NewsItem(history.size() + 1, "rumor", symbol, text, null));
     }
 
     private void publishNews() {
@@ -132,6 +136,6 @@ public final class Market {
         trueRumorSymbol = null;
         drifts.get(card.stock()).onNews(card.changePercent(), rumored, random);
         history.add(new NewsItem(history.size() + 1, "news", card.stock(),
-                catalog.stock(card.stock()).name() + " · " + card.headline()));
+                catalog.stock(card.stock()).name() + " · " + card.headline(), card.body()));
     }
 }

@@ -291,7 +291,7 @@ public class LobbySocket extends TextWebSocketHandler {
     private void broadcastMarket(Lobby lobby) throws IOException {
         var history = lobby.market.history();
         var latest = history.isEmpty()
-                ? new Market.NewsItem(0, "news", "", "") : history.getLast();
+                ? new Market.NewsItem(0, "news", "", "", null) : history.getLast();
         var prices = new HashMap<String, Long>();
         var pools = new HashMap<String, StockPool.Reserves>();
         lobby.market.pools().forEach((symbol, pool) -> {
