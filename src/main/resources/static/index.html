@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>부장님 몰래 · 대기실</title>
+<style>
+  #news {
+    position: fixed;
+    inset: 1rem 1rem auto auto;
+    z-index: 1;
+    max-width: min(24rem, calc(100vw - 4rem));
+    margin: 0;
+    padding: .75rem 1rem;
+    border-radius: .5rem;
+    background: #182536;
+    color: white;
+    pointer-events: none;
+  }
+</style>
+<main>
+  <h1>부장님 몰래</h1>
+  <fieldset id="entry" disabled>
+    <legend>대기실</legend>
+    <button id="create">방 만들기</button>
+    <label>초대 코드 <input id="code" maxlength="6" inputmode="numeric"></label>
+    <button id="join">입장</button>
+  </fieldset>
+  <section id="lobby" hidden>
+    <h2 id="roomTitle"></h2>
+    <p id="players"></p>
+    <button id="start" hidden>게임 시작</button>
+  </section>
+  <button id="switchView" hidden>주식 창 열기 (Tab)</button>
+  <p id="meeting" role="status" hidden>부장님과 면담 중입니다.</p>
+  <p id="balance" hidden></p>
+  <p id="news" role="status" hidden></p>
+  <details id="inbox" hidden>
+    <summary>뉴스 알림창</summary>
+    <p id="historyStatus"></p>
+    <ol id="historyList" reversed></ol>
+  </details>
+  <section id="work" hidden>
+    <h2>업무 · 매출 합계 입력</h2>
+    <table>
+      <caption id="taskTitle"></caption>
+      <tbody>
+        <tr><th scope="row">A1</th><td id="a1"></td></tr>
+        <tr><th scope="row">A2</th><td id="a2"></td></tr>
+      </tbody>
+    </table>
+    <form id="answerForm">
+      <label>A1과 A2의 합계 <input id="answer" type="number" step="1" required></label>
+      <button>제출</button>
+    </form>
+  </section>
+  <section id="market" hidden>
+    <h2>주식 거래</h2>
+    <table>
+      <thead><tr><th>종목</th><th>기준가</th><th>내 보유량</th></tr></thead>
+      <tbody id="quotes"></tbody>
+    </table>
+    <form id="order">
+      <label>종목 <select id="symbol"></select></label>
+      <label>수량 <input id="quantity" type="number" min="1" step="1" value="1" required></label>
+      <button value="BUY">매수</button>
+      <button value="SELL">매도</button>
+    </form>
+    <p id="estimate" aria-live="polite"></p>
+    <p id="fill" role="status"></p>
+  </section>
+  <p id="status" role="status">연결 중…</p>
+</main>
+<script type="module">
+  const el = id => document.getElementById(id);
+  const url = new URL('/ws/lobby', location.href);
+  url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const socket = new WebSocket(url);
+  socket.onopen = () => {
+    el('entry').disabled = false;
+    el('status').textContent = '친구에게 받은 코드로 입장하거나 방을 만드세요.';
+  };
+  el('create').onclick = () => socket.send('CREATE');
+  el('join').onclick = () => socket.send('JOIN ' + el('code').value.trim());
+  el('start').onclick = () => socket.send('START');
+  let taskNumber = null;
+  let audio;
+  let lastStep = -1;
+  function enableSound() {
+    audio ??= new AudioContext();
+    audio.resume().catch(() => {});
+  }
+  for (const id of ['create', 'join', 'start', 'switchView']) {
+    el(id).addEventListener('click', enableSound);
+  }
+  function footsteps({from, to, listener}) {
+    if (audio?.state !== 'running') return;
+    for (const delay of [0, 0.5, 1, 1.5]) {
+      const t = audio.currentTime + delay;
+      const sound = audio.createOscillator();
+      const gain = audio.createGain();
+      const fraction = delay / 2;
+      const x = from.x + (to.x - from.x) * fraction - listener.position.x;
+      const z = from.z + (to.z - from.z) * fraction - listener.position.z;
+      // Web Audio listener faces -Z, with +X to its right.
+      const pan = new PannerNode(audio, {
+        panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 1,
+        positionX: -listener.forwardZ * x, positionY: -1, positionZ: -listener.forwardZ * z
+      });
+      sound.frequency.setValueAtTime(120, t);
+      sound.frequency.exponentialRampToValueAtTime(55, t + 0.1);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.19, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+      sound.connect(gain).connect(pan).connect(audio.destination);
+      sound.start(t);
+      sound.stop(t + 0.16);
+      sound.onended = () => { sound.disconnect(); gain.disconnect(); pan.disconnect(); };
+    }
+  }
+  function showView(view) {
+    const seated = view === 'WORK' || view === 'MARKET';
+    el('work').hidden = view !== 'WORK';
+    el('market').hidden = view !== 'MARKET';
+    el('meeting').hidden = view !== 'MEETING';
+    el('switchView').hidden = el('balance').hidden = el('inbox').hidden = !seated;
+    el('switchView').textContent = view === 'WORK' ? '주식 창 열기 (Tab)' : '업무 창 열기 (Tab)';
+    if (!seated) {
+      el('inbox').open = false;
+      el('news').hidden = true;
+    }
+  }
+  el('switchView').onclick = () => socket.send('SWITCH');
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey ||
+        event.metaKey || el('switchView').hidden) return;
+    event.preventDefault();
+    if (!event.repeat) socket.send('SWITCH');
+  });
+  const won = value => value.toLocaleString('ko-KR') + '원';
+  el('order').onsubmit = event => {
+    event.preventDefault();
+    const side = event.submitter?.value;
+    if (!side || socket.readyState !== WebSocket.OPEN) return;
+    socket.send([side, el('symbol').value, el('quantity').value].join(' '));
+  };
+
+  let lastNewsNumber = 0;
+  let popupTimer;
+
+  // 서버 StockPool과 같은 계산: 풀에 남는 현금을 올림하므로 매수 대금은 올림, 매도 대금은 내림.
+  let pools = {};
+  let holdingsNow = {};
+  let cashNow = 0n;
+  const ceilDiv = (a, b) => (a + b - 1n) / b;
+  function quote(symbol, quantity) {
+    const pool = pools[symbol];
+    if (!pool || !(quantity > 0n)) return null;
+    const shares = BigInt(pool.shares), cash = BigInt(pool.cashWon), k = shares * cash;
+    const buy = quantity < shares ? ceilDiv(k, shares - quantity) - cash : null;
+    const sell = cash - ceilDiv(k, shares + quantity);
+    return {buy, sell};
+  }
+  function renderEstimate() {
+    const out = el('estimate');
+    let quantity;
+    try { quantity = BigInt(el('quantity').value); } catch { quantity = 0n; }
+    const symbol = el('symbol').value;
+    const q = quote(symbol, quantity);
+    if (!q) { out.textContent = ''; return; }
+    const owned = BigInt(holdingsNow[symbol] ?? 0);
+    const avg = amount => won(Number(amount / quantity)) + '/주';
+    const buyText = q.buy === null ? '매수 불가 (풀 수량 초과)'
+      : '예상 매수 금액 ' + won(Number(q.buy)) + ' (평균 ' + avg(q.buy) + ')' +
+        (q.buy > cashNow ? ' · 현금 부족' : '');
+    const sellText = quantity > owned ? '매도 불가 (보유 ' + owned + '주)'
+      : '예상 매도 금액 ' + won(Number(q.sell)) + ' (평균 ' + avg(q.sell) + ')';
+    out.textContent = buyText + ' · ' + sellText + ' — 주문이 도착할 때 시세가 바뀌면 달라질 수 있습니다.';
+  }
+  el('quantity').addEventListener('input', renderEstimate);
+  el('symbol').addEventListener('change', renderEstimate);
+
+  function requestHistory() {
+    if (socket.readyState === WebSocket.OPEN && el('inbox').open) {
+      socket.send('NEWS HISTORY');
+    }
+  }
+  el('inbox').ontoggle = requestHistory;
+
+  const newsLabel = kind => kind === 'rumor' ? '찌라시 · ' : '속보 · ';
+
+  function renderHistory(items) {
+    const list = el('historyList');
+    list.replaceChildren();
+    el('historyStatus').textContent = items.length ? '' : '아직 발표된 뉴스가 없습니다.';
+    for (const item of [...items].reverse()) {
+      const row = document.createElement('li');
+      row.value = item.number;
+      row.textContent = newsLabel(item.kind) + item.headline;
+      list.append(row);
+    }
+  }
+
+  function clearNews() {
+    clearTimeout(popupTimer);
+    lastNewsNumber = 0;
+    lastStep = -1;
+    showView(null);
+    el('news').hidden = true;
+    el('news').textContent = '';
+    el('inbox').open = false;
+    el('inbox').hidden = true;
+    el('historyList').replaceChildren();
+    el('historyStatus').textContent = '';
+    el('estimate').textContent = '';
+    pools = {};
+    holdingsNow = {};
+  }
+
+  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsNumber, view, beat, walking, step}) {
+    showView(view);
+    pools = nextPools;
+    holdingsNow = holdings;
+    if (walking && lastStep !== beat) {
+      lastStep = beat;
+      footsteps(step);
+    }
+    const news = el('news');
+    el('inbox').hidden = false;
+    if (newsNumber > lastNewsNumber) {
+      lastNewsNumber = newsNumber;
+      news.textContent = newsLabel(newsKind) + headline;
+      news.hidden = false;
+      clearTimeout(popupTimer);
+      popupTimer = setTimeout(() => { news.hidden = true; }, 4000);
+      requestHistory();
+    }
+    const symbols = Object.keys(prices).sort((a, b) => a.localeCompare(b, 'ko'));
+    const select = el('symbol');
+    if (select.options.length === 0) {
+      for (const symbol of symbols) select.add(new Option(symbol, symbol));
+    }
+    el('quotes').replaceChildren();
+    for (const symbol of symbols) {
+      const row = el('quotes').insertRow();
+      row.insertCell().textContent = symbol;
+      row.insertCell().textContent = won(prices[symbol]);
+      row.insertCell().textContent = (holdings[symbol] ?? 0) + '주';
+    }
+    renderEstimate();
+  }
+  el('answerForm').onsubmit = event => {
+    event.preventDefault();
+    if (taskNumber !== null && socket.readyState === WebSocket.OPEN) {
+      socket.send('WORK ' + taskNumber + ' ' + el('answer').value);
+    }
+  };
+  socket.onmessage = event => {
+    const message = JSON.parse(event.data);
+    if (message.type === 'state') {
+      const {room, code, you} = message;
+      el('entry').hidden = true;
+      el('lobby').hidden = false;
+      el('roomTitle').textContent = '초대 코드 ' + code;
+      el('players').textContent = '참가자 ' + room.players.length + ' / 4명';
+      el('start').hidden = you !== room.hostId || Boolean(room.startedAt);
+      el('start').disabled = room.players.length < 2;
+      el('status').textContent = room.startedAt
+        ? '게임 시작 · ' + new Date(room.startedAt).toLocaleTimeString('ko-KR')
+        : '시작 대기 중';
+    } else if (message.type === 'view') {
+      showView(message.view);
+    } else if (message.type === 'meeting') {
+      lastNewsNumber = Math.max(lastNewsNumber, message.newsNumber);
+      showView('MEETING');
+    } else if (message.type === 'market') {
+      renderMarket(message);
+    } else if (message.type === 'newsHistory') {
+      renderHistory(message.items);
+    } else if (message.type === 'fill') {
+      el('fill').textContent =
+        message.symbol + ' ' + message.quantity + '주 ' + message.side +
+        ' 체결 · 총 ' + won(message.amount);
+    } else if (message.type === 'work') {
+      const {task, balance, rewardWon} = message.desk;
+      const advanced = taskNumber !== null && task.number > taskNumber;
+      taskNumber = task.number;
+      cashNow = BigInt(balance.cashWon);
+      renderEstimate();
+      el('balance').textContent =
+        '내 현금 ' + won(balance.cashWon) + ' · 누적 업무 수당 ' + won(balance.workIncomeWon);
+      el('taskTitle').textContent = '업무 ' + task.number + ' · 완료 수당 ' + won(rewardWon);
+      el('a1').textContent = task.a1;
+      el('a2').textContent = task.a2;
+      if (advanced) {
+        el('status').textContent = '업무 완료 · ' + won(rewardWon) + ' 지급';
+        el('answer').value = '';
+        el('answer').focus();
+      }
+    } else {
+      el('status').textContent = message.message;
+      if (message.type === 'closed') {
+        clearNews();
+        el('market').hidden = true;
+        el('fill').textContent = '';
+        el('symbol').replaceChildren();
+        taskNumber = null;
+        el('work').hidden = true;
+        el('answer').value = '';
+        el('lobby').hidden = true;
+        el('entry').hidden = false;
+      }
+    }
+  };
+  socket.onclose = () => {
+    clearNews();
+    el('market').hidden = true;
+    taskNumber = null;
+    el('work').hidden = true;
+    el('entry').disabled = true;
+    el('start').disabled = true;
+    el('status').textContent = '연결이 끊겼습니다. 새로고침해 다시 접속하세요.';
+  };
+</script>
+</html>
