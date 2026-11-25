@@ -20,11 +20,13 @@ final class Patrol {
     record Step(Point from, Point to, Listener listener) {}
 
     static final int BEAT_SECONDS = 2;
-    /** 마지막 업무 뒤 이 시간까지는 의심이 오르지 않는다. 업무를 자주 하지 않아도 되게 하는 여유. */
-    static final int SUSPICION_GRACE_SECONDS = 45;
+    // 기준: 40초에 한 건이면 의심이 제자리다(20초 유예 + 20초 동안 +1 = +20, 업무 1건 = -20).
+    // 그보다 뜸하면 쌓이고, 아무것도 안 하면 80초 만에 100이 된다.
+    /** 마지막 업무 뒤 이 시간까지는 의심이 오르지 않는다. */
+    static final int SUSPICION_GRACE_SECONDS = 20;
     /** 이 시간까지는 초당 +1, 넘으면 초당 +2. */
-    static final int SUSPICION_FAST_SECONDS = 90;
-    static final double SUSPICION_PER_TASK = 35;
+    static final int SUSPICION_FAST_SECONDS = 40;
+    static final double SUSPICION_PER_TASK = 20;
     static final double SUSPICION_MAX = 100;
     /** 이 값을 넘는 순간 부장님 헛기침이 그 사람에게만 들린다. */
     static final double SUSPICION_COUGH = 70;
