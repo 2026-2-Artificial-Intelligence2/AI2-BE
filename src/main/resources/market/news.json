@@ -1,0 +1,37 @@
+{
+  "news": [
+    { "stock": "MINT", "changePercent": 10, "headline": "편의점 3사, 민트초코 라면 추가 발주" },
+    { "stock": "MINT", "changePercent": -8, "headline": "신제품 포장 불량으로 출고 지연" },
+    { "stock": "MINT", "changePercent": 6, "headline": "급식 납품 계약 체결" },
+    { "stock": "MINT", "changePercent": -6, "headline": "원재료 수입 단가 상승" },
+    { "stock": "MINT", "changePercent": 8, "headline": "해외 시식 행사에서 초도 물량 완판" },
+    { "stock": "MINT", "changePercent": -7, "headline": "대형마트 판촉 행사 취소" },
+    { "stock": "MINT", "changePercent": 5, "headline": "생산라인 개선으로 포장비 절감" },
+    { "stock": "MOON", "changePercent": 14, "headline": "물류 로봇 대규모 공급 계약 체결" },
+    { "stock": "MOON", "changePercent": -12, "headline": "시연 중 로봇 팔 멈춰 재점검" },
+    { "stock": "MOON", "changePercent": 9, "headline": "야간 배송 로봇 실증 승인" },
+    { "stock": "MOON", "changePercent": -9, "headline": "핵심 센서 납품 일정 연기" },
+    { "stock": "MOON", "changePercent": 12, "headline": "신형 배터리 주행 시험 통과" },
+    { "stock": "MOON", "changePercent": -11, "headline": "주력 모델 무상 수리 확대" },
+    { "stock": "MOON", "changePercent": 7, "headline": "창고 자동화 시범 사업 선정" },
+    { "stock": "OURS", "changePercent": 8, "headline": "최대 고객사와 계약 갱신" },
+    { "stock": "OURS", "changePercent": -7, "headline": "분기 납품 일정 차질" },
+    { "stock": "OURS", "changePercent": 6, "headline": "사내 시제품 첫 유료 고객 확보" },
+    { "stock": "OURS", "changePercent": -5, "headline": "신사옥 이전 비용 예상 초과" },
+    { "stock": "OURS", "changePercent": 9, "headline": "해외 지사 첫 흑자 발표" },
+    { "stock": "OURS", "changePercent": -8, "headline": "주요 입찰에서 경쟁사에 밀려" },
+    { "stock": "OURS", "changePercent": 5, "headline": "장기 유지보수 계약 추가 수주" }
+  ],
+  "rumors": {
+    "good": [
+      "{name} 쪽에 좋은 소식이 곧 나온다는 얘기가 돈다",
+      "{name} 임원진이 오늘 유난히 웃고 다닌다는 목격담",
+      "{name} 담당 팀이 축하 회식을 잡았다는 소문"
+    ],
+    "bad": [
+      "{name} 임원들이 긴급 회의에 들어갔다는 소문",
+      "{name} 거래처와 마찰이 있다는 얘기가 돈다",
+      "{name} 담당자가 아침부터 전화를 안 받는다는 목격담"
+    ]
+  }
+}

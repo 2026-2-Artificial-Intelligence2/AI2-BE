@@ -5,48 +5,21 @@
       "name": "민트식품",
       "startPriceWon": 1000,
       "poolShares": 1000,
-      "volatilityPerSecond": 0.0106,
-      "news": [
-        { "changePercent": 10, "headline": "편의점 3사, 민트초코 라면 추가 발주" },
-        { "changePercent": -8, "headline": "신제품 포장 불량으로 출고 지연" },
-        { "changePercent": 6, "headline": "급식 납품 계약 체결" },
-        { "changePercent": -6, "headline": "원재료 수입 단가 상승" },
-        { "changePercent": 8, "headline": "해외 시식 행사에서 초도 물량 완판" },
-        { "changePercent": -7, "headline": "대형마트 판촉 행사 취소" },
-        { "changePercent": 5, "headline": "생산라인 개선으로 포장비 절감" }
-      ]
+      "volatilityPerSecond": 0.0106
     },
     {
       "id": "MOON",
       "name": "달나라로봇",
       "startPriceWon": 1000,
       "poolShares": 1000,
-      "volatilityPerSecond": 0.0177,
-      "news": [
-        { "changePercent": 14, "headline": "물류 로봇 대규모 공급 계약 체결" },
-        { "changePercent": -12, "headline": "시연 중 로봇 팔 멈춰 재점검" },
-        { "changePercent": 9, "headline": "야간 배송 로봇 실증 승인" },
-        { "changePercent": -9, "headline": "핵심 센서 납품 일정 연기" },
-        { "changePercent": 12, "headline": "신형 배터리 주행 시험 통과" },
-        { "changePercent": -11, "headline": "주력 모델 무상 수리 확대" },
-        { "changePercent": 7, "headline": "창고 자동화 시범 사업 선정" }
-      ]
+      "volatilityPerSecond": 0.0177
     },
     {
       "id": "OURS",
       "name": "우리회사",
       "startPriceWon": 1000,
       "poolShares": 1000,
-      "volatilityPerSecond": 0.0057,
-      "news": [
-        { "changePercent": 8, "headline": "최대 고객사와 계약 갱신" },
-        { "changePercent": -7, "headline": "분기 납품 일정 차질" },
-        { "changePercent": 6, "headline": "사내 시제품 첫 유료 고객 확보" },
-        { "changePercent": -5, "headline": "신사옥 이전 비용 예상 초과" },
-        { "changePercent": 9, "headline": "해외 지사 첫 흑자 발표" },
-        { "changePercent": -8, "headline": "주요 입찰에서 경쟁사에 밀려" },
-        { "changePercent": 5, "headline": "장기 유지보수 계약 추가 수주" }
-      ]
+      "volatilityPerSecond": 0.0057
     }
   ]
 }

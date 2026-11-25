@@ -27,30 +27,23 @@ public final class Market {
     /** @param kind "news"(속보) 또는 "rumor"(찌라시) @param symbol 관련 종목 코드 */
     public record NewsItem(int number, String kind, String symbol, String headline) {}
 
-    private static final List<String> GOOD_RUMORS = List.of(
-            "%s 쪽에 좋은 소식이 곧 나온다는 얘기가 돈다",
-            "%s 임원진이 오늘 유난히 웃고 다닌다는 목격담",
-            "%s 담당 팀이 축하 회식을 잡았다는 소문");
-    private static final List<String> BAD_RUMORS = List.of(
-            "%s 임원들이 긴급 회의에 들어갔다는 소문",
-            "%s 거래처와 마찰이 있다는 얘기가 돈다",
-            "%s 담당자가 아침부터 전화를 안 받는다는 목격담");
-
     private final RandomGenerator random;
     private final Map<String, StockPool> pools = new LinkedHashMap<>();
     private final Map<String, PriceDrift> drifts = new LinkedHashMap<>();
     private final List<NewsItem> history = new ArrayList<>();
     private final StockCatalog catalog;
-    private List<MarketNews> deck;
+    private final NewsCatalog news;
+    private List<NewsCatalog.Card> deck;
     private String trueRumorSymbol;
     private final long closingTick;
 
     /**
-     * 종목과 뉴스는 모두 catalog에서 온다. 종목 코드(id)를 키로 쓴다.
+     * 종목은 catalog, 뉴스와 찌라시 문구는 news에서 온다. 종목 코드(id)를 키로 쓴다.
      * @param sessionSeconds 출근부터 퇴근까지 길이. 마지막 2분이 장 마감 구간이다.
      */
-    public Market(StockCatalog catalog, RandomGenerator random, long sessionSeconds) {
+    public Market(StockCatalog catalog, NewsCatalog news, RandomGenerator random, long sessionSeconds) {
         this.catalog = catalog;
+        this.news = news;
         this.random = random;
         this.closingTick = Math.max(0, sessionSeconds - CLOSING_WINDOW_SECONDS) / TICK_SECONDS;
         for (var stock : catalog.stocks()) {
@@ -58,7 +51,7 @@ public final class Market {
                     Math.multiplyExact(stock.poolShares(), stock.startPriceWon())));
             drifts.put(stock.id(), new PriceDrift(stock.startPriceWon(), stock.volatilityPerSecond()));
         }
-        deck = MarketNews.shuffledDeck(catalog, random);
+        deck = MarketNews.shuffledDeck(news, random);
     }
 
     public StockCatalog catalog() {
@@ -98,8 +91,8 @@ public final class Market {
         drifts.forEach((symbol, drift) -> pools.get(symbol).moveToward(drift.advance(scale, random), CHASE_PER_TICK));
     }
 
-    private MarketNews upcoming() {
-        if (deck.isEmpty()) deck = MarketNews.shuffledDeck(catalog, random);
+    private NewsCatalog.Card upcoming() {
+        if (deck.isEmpty()) deck = MarketNews.shuffledDeck(news, random);
         return deck.getLast();
     }
 
@@ -108,7 +101,7 @@ public final class Market {
         String symbol;
         int changePercent;
         if (random.nextDouble() < TRUE_RUMOR_CHANCE) {
-            symbol = next.symbol();
+            symbol = next.stock();
             changePercent = next.changePercent();
             trueRumorSymbol = symbol;
         } else {
@@ -117,26 +110,28 @@ public final class Market {
             var stocks = catalog.stocks();
             do {
                 var stock = stocks.get(random.nextInt(stocks.size()));
-                var sample = stock.news().get(random.nextInt(stock.news().size()));
+                var cards = news.cardsFor(stock.id());
+                var sample = cards.get(random.nextInt(cards.size()));
                 symbol = stock.id();
                 changePercent = (random.nextBoolean() ? 1 : -1) * Math.abs(sample.changePercent());
-            } while (symbol.equals(next.symbol())
+            } while (symbol.equals(next.stock())
                     && Integer.signum(changePercent) == Integer.signum(next.changePercent()));
         }
         drifts.get(symbol).onRumor(changePercent, RUMOR_LEAD_TICKS);
-        var templates = changePercent > 0 ? GOOD_RUMORS : BAD_RUMORS;
-        var text = templates.get(random.nextInt(templates.size())).formatted(catalog.stock(symbol).name());
+        var phrases = changePercent > 0 ? news.rumors().good() : news.rumors().bad();
+        var text = phrases.get(random.nextInt(phrases.size()))
+                .replace(NewsCatalog.NAME, catalog.stock(symbol).name());
         history.add(new NewsItem(history.size() + 1, "rumor", symbol, text));
     }
 
     private void publishNews() {
-        var news = upcoming();
+        var card = upcoming();
         deck.removeLast();
         drifts.values().forEach(PriceDrift::clearRumor);
-        boolean rumored = news.symbol().equals(trueRumorSymbol);
+        boolean rumored = card.stock().equals(trueRumorSymbol);
         trueRumorSymbol = null;
-        drifts.get(news.symbol()).onNews(news.changePercent(), rumored, random);
-        history.add(new NewsItem(history.size() + 1, "news", news.symbol(),
-                catalog.stock(news.symbol()).name() + " · " + news.headline()));
+        drifts.get(card.stock()).onNews(card.changePercent(), rumored, random);
+        history.add(new NewsItem(history.size() + 1, "news", card.stock(),
+                catalog.stock(card.stock()).name() + " · " + card.headline()));
     }
 }
