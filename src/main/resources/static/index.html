@@ -30,6 +30,7 @@
     <p id="players"></p>
     <button id="start" hidden>게임 시작</button>
   </section>
+  <p id="clock" hidden></p>
   <button id="switchView" hidden>주식 창 열기 (Tab)</button>
   <p id="meeting" role="status" hidden>부장님과 면담 중입니다.</p>
   <p id="balance" hidden></p>
@@ -67,6 +68,20 @@
     </form>
     <p id="estimate" aria-live="polite"></p>
     <p id="fill" role="status"></p>
+  </section>
+  <section id="results" hidden>
+    <h2>퇴근! 최종 순위</h2>
+    <table>
+      <thead><tr><th>순위</th><th>직원</th><th>순자산</th><th>현금</th><th>주식 청산가</th><th>업무 수당</th><th>보유 주식</th></tr></thead>
+      <tbody id="standings"></tbody>
+    </table>
+    <p>주식은 퇴근 순간 혼자 전부 팔았을 때 받을 금액으로 평가합니다.</p>
+    <h3>매매 기록</h3>
+    <p id="tradesEmpty" hidden>이번 판에는 아무도 주식을 거래하지 않았습니다.</p>
+    <table>
+      <thead><tr><th>시각</th><th>직원</th><th>종목</th><th>구분</th><th>수량</th><th>금액</th></tr></thead>
+      <tbody id="trades"></tbody>
+    </table>
   </section>
   <p id="status" role="status">연결 중…</p>
 </main>
@@ -212,12 +227,53 @@
     el('historyList').replaceChildren();
     el('historyStatus').textContent = '';
     el('estimate').textContent = '';
+    el('clock').hidden = true;
     pools = {};
     holdingsNow = {};
   }
 
-  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsNumber, view, beat, walking, step}) {
+  const clockText = seconds => Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+  function renderClock(remainingSeconds) {
+    const clock = el('clock');
+    clock.hidden = false;
+    clock.textContent = '퇴근까지 ' + clockText(remainingSeconds) +
+      (remainingSeconds <= 120 ? ' · 장 마감 직전, 시세가 크게 흔들립니다' : '');
+  }
+
+  function renderResults({you, standings, trades}) {
+    showView(null);
+    el('clock').hidden = true;
+    el('news').hidden = true;
+    clearTimeout(popupTimer);
+    const body = el('standings');
+    body.replaceChildren();
+    for (const row of standings) {
+      const tr = body.insertRow();
+      const holdings = Object.entries(row.holdings).map(([s, q]) => s + ' ' + q + '주').join(', ') || '없음';
+      for (const text of [row.rank + '위', row.player + (row.player === you ? ' (나)' : ''),
+          won(row.netWorthWon), won(row.cashWon), won(row.stockValueWon),
+          won(row.workIncomeWon) + ' (' + row.completedTasks + '건)', holdings]) {
+        tr.insertCell().textContent = text;
+      }
+      if (row.player === you) tr.style.fontWeight = 'bold';
+    }
+    const log = el('trades');
+    log.replaceChildren();
+    el('tradesEmpty').hidden = trades.length > 0;
+    for (const t of trades) {
+      const tr = log.insertRow();
+      for (const text of [clockText(t.second), t.player, t.symbol, t.side, t.quantity + '주', won(t.amountWon)]) {
+        tr.insertCell().textContent = text;
+      }
+    }
+    el('results').hidden = false;
+    const mine = standings.find(row => row.player === you);
+    el('status').textContent = mine ? '퇴근했습니다. ' + mine.rank + '위 · 순자산 ' + won(mine.netWorthWon) : '퇴근했습니다.';
+  }
+
+  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsNumber, view, beat, walking, step, remainingSeconds}) {
     showView(view);
+    renderClock(remainingSeconds);
     pools = nextPools;
     holdingsNow = holdings;
     if (walking && lastStep !== beat) {
@@ -258,13 +314,16 @@
     const message = JSON.parse(event.data);
     if (message.type === 'state') {
       const {room, code, you} = message;
+      // 새 방의 대기 상태일 때만 지난 판 결과를 치운다(퇴근 뒤 누가 나가도 결과는 남는다).
+      if (!room.startedAt) el('results').hidden = true;
       el('entry').hidden = true;
       el('lobby').hidden = false;
       el('roomTitle').textContent = '초대 코드 ' + code;
       el('players').textContent = '참가자 ' + room.players.length + ' / 4명';
       el('start').hidden = you !== room.hostId || Boolean(room.startedAt);
       el('start').disabled = room.players.length < 2;
-      el('status').textContent = room.startedAt
+      // 퇴근 뒤 누가 나가 참가자 수가 바뀌어도 결과 문구는 그대로 둔다.
+      if (el('results').hidden) el('status').textContent = room.startedAt
         ? '게임 시작 · ' + new Date(room.startedAt).toLocaleTimeString('ko-KR')
         : '시작 대기 중';
     } else if (message.type === 'view') {
@@ -274,6 +333,8 @@
       showView('MEETING');
     } else if (message.type === 'market') {
       renderMarket(message);
+    } else if (message.type === 'result') {
+      renderResults(message);
     } else if (message.type === 'newsHistory') {
       renderHistory(message.items);
     } else if (message.type === 'fill') {

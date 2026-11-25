@@ -7,7 +7,10 @@ import game.officestock.player.WorkDesk;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.SplittableRandom;
@@ -36,14 +39,17 @@ public class LobbySocket extends TextWebSocketHandler {
 
     private final long startingCashWon;
     private final long workRewardWon;
+    private final long sessionSeconds;
     private final PlaytestLog playtest;
 
     public LobbySocket(ObjectMapper json, PlaytestLog playtest,
             @Value("${game.starting-cash-won}") long startingCashWon,
-            @Value("${game.work-reward-won}") long workRewardWon) {
-        if (startingCashWon < 0 || workRewardWon <= 0) {
-            throw new IllegalArgumentException("시작 자금과 업무 수당 설정을 확인하세요.");
+            @Value("${game.work-reward-won}") long workRewardWon,
+            @Value("${game.session-seconds}") long sessionSeconds) {
+        if (startingCashWon < 0 || workRewardWon <= 0 || sessionSeconds <= 0) {
+            throw new IllegalArgumentException("시작 자금, 업무 수당, 근무 시간 설정을 확인하세요.");
         }
+        this.sessionSeconds = sessionSeconds;
         this.startingCashWon = startingCashWon;
         this.workRewardWon = workRewardWon;
         this.json = json;
@@ -59,14 +65,19 @@ public class LobbySocket extends TextWebSocketHandler {
         final Map<UUID, WorkDesk> desks = new HashMap<>();
         /** 기록용 이름(P1, P2…). 입장 순서를 따른다. */
         final Map<UUID, String> labels = new HashMap<>();
-        final Market market = new Market(new SplittableRandom());
+        final Market market;
         final Patrol patrol = new Patrol();
+        final long sessionTicks;
+        final List<Settlement.TradeRecord> trades = new ArrayList<>();
         long tick;
+        boolean finished;
         Thread marketClock;
 
-        Lobby(String code, UUID host) {
+        Lobby(String code, UUID host, long sessionSeconds) {
             this.code = code;
             this.game = new GameRoom(host);
+            this.market = new Market(new SplittableRandom(), sessionSeconds);
+            this.sessionTicks = sessionSeconds / Market.TICK_SECONDS;
         }
     }
 
@@ -84,6 +95,9 @@ public class LobbySocket extends TextWebSocketHandler {
                 try {
                     if (rooms.get(lobby.code) != lobby) {
                         throw new IllegalStateException("종료된 방입니다.");
+                    }
+                    if (lobby.finished) {
+                        throw new IllegalStateException("퇴근했습니다. 결과를 확인하세요.");
                     }
                     if (command.equals("SWITCH")) {
                         var seat = lobby.patrol.seats.get(member.player());
@@ -197,6 +211,8 @@ public class LobbySocket extends TextWebSocketHandler {
             throw new IllegalArgumentException("처리할 수 있는 주문 범위를 초과했습니다.");
         }
         lobby.market.recordTrade(symbol, spotBefore);
+        lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS,
+                lobby.labels.get(member.player()), symbol, buying ? "매수" : "매도", quantity, amount));
         sendDesk(session, desk);
         send(session, Map.of("type", "fill", "symbol", symbol, "quantity", quantity,
                 "side", buying ? "매수" : "매도", "amount", amount));
@@ -212,9 +228,13 @@ public class LobbySocket extends TextWebSocketHandler {
                     if (rooms.get(lobby.code) != lobby) return;
                     advanceMarket(lobby);
                     try {
+                        if (lobby.tick >= lobby.sessionTicks) {
+                            finish(lobby);
+                            return;
+                        }
                         broadcastMarket(lobby);
                     } catch (IOException e) {
-                        log.warn("방 {} 시세 전송 실패", lobby.code, e);
+                        log.warn("방 {} 전송 실패", lobby.code, e);
                     }
                 } finally {
                     lobby.lock.unlock();
@@ -237,6 +257,24 @@ public class LobbySocket extends TextWebSocketHandler {
             });
         }
         lobby.market.advance(lobby.tick);
+    }
+
+    /** 퇴근: 이후 모든 조작을 막고, 순위와 이번 판의 매매 기록을 모두에게 공개한다. */
+    private void finish(Lobby lobby) throws IOException {
+        lobby.finished = true;
+        var desksByPlayer = new LinkedHashMap<String, WorkDesk>();
+        for (var player : lobby.game.snapshot().players()) {
+            var desk = lobby.desks.get(player);
+            if (desk != null) desksByPlayer.put(lobby.labels.get(player), desk);
+        }
+        var standings = Settlement.standings(desksByPlayer, lobby.market);
+        log.info("방 {} 퇴근 정산: {}", lobby.code, standings);
+        desksByPlayer.forEach((label, desk) -> playtest.summary(lobby.code, label, desk.timings()));
+        for (var entry : lobby.clients.entrySet()) {
+            send(entry.getValue(), Map.of("type", "result", "you", lobby.labels.get(entry.getKey()),
+                    "standings", standings, "trades", lobby.trades,
+                    "news", lobby.market.history()));
+        }
     }
 
     private void broadcastMarket(Lobby lobby) throws IOException {
@@ -263,7 +301,9 @@ public class LobbySocket extends TextWebSocketHandler {
                     Map.entry("newsKind", latest.kind()), Map.entry("newsNumber", latest.number()),
                     Map.entry("view", seat.view), Map.entry("beat", lobby.patrol.beat),
                     Map.entry("walking", lobby.patrol.walking),
-                    Map.entry("step", lobby.patrol.step(seat))));
+                    Map.entry("step", lobby.patrol.step(seat)),
+                    Map.entry("remainingSeconds",
+                            (lobby.sessionTicks - lobby.tick) * Market.TICK_SECONDS)));
         }
     }
 
@@ -271,7 +311,7 @@ public class LobbySocket extends TextWebSocketHandler {
         var host = UUID.randomUUID();
         while (true) {
             var code = Integer.toString(100_000 + random.nextInt(900_000));
-            var lobby = new Lobby(code, host);
+            var lobby = new Lobby(code, host, sessionSeconds);
             lobby.lock.lock();
             try {
                 if (rooms.putIfAbsent(code, lobby) != null) continue;
@@ -329,7 +369,7 @@ public class LobbySocket extends TextWebSocketHandler {
         try {
             lobby.clients.remove(member.player());
             var leftDesk = lobby.desks.remove(member.player());
-            if (leftDesk != null) {
+            if (leftDesk != null && !lobby.finished) {
                 playtest.summary(lobby.code, lobby.labels.get(member.player()), leftDesk.timings());
             }
             lobby.patrol.seats.remove(member.player());
@@ -337,8 +377,10 @@ public class LobbySocket extends TextWebSocketHandler {
             if (member.player().equals(lobby.game.snapshot().hostId())) {
                 rooms.remove(lobby.code, lobby);
                 if (lobby.marketClock != null) lobby.marketClock.interrupt();
-                lobby.desks.forEach((id, desk) ->
-                        playtest.summary(lobby.code, lobby.labels.get(id), desk.timings()));
+                if (!lobby.finished) {
+                    lobby.desks.forEach((id, desk) ->
+                            playtest.summary(lobby.code, lobby.labels.get(id), desk.timings()));
+                }
                 for (var client : lobby.clients.values()) {
                     client.getAttributes().remove(MEMBERSHIP);
                     send(client, Map.of("type", "closed", "message", "방장이 나가 방이 종료됐습니다."));

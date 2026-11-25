@@ -67,6 +67,12 @@ public final class StockPool {
         return proceeds;
     }
 
+    /** 풀을 바꾸지 않고, 지금 quantity주를 팔면 받을 금액을 계산한다. 퇴근 정산의 주식 평가에 쓴다. */
+    public long quoteSell(long quantity) {
+        if (quantity <= 0) return 0;
+        return cashWon - cashRequiredFor(Math.addExact(shares, quantity));
+    }
+
     private long cashRequiredFor(long nextShares) {
         var product = BigInteger.valueOf(shares).multiply(BigInteger.valueOf(cashWon));
         var divisor = BigInteger.valueOf(nextShares);

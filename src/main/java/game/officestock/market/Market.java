@@ -14,11 +14,10 @@ public final class Market {
     private static final int NEWS_INTERVAL_SECONDS = 20;
     /** 찌라시는 뉴스 몇 초 전에 도는가. */
     private static final int RUMOR_LEAD_SECONDS = 8;
-    /** 약 15분 판에서 마지막 2분은 흔들림이 커진다. */
-    private static final int CLOSING_SECONDS = 780;
+    /** 퇴근 전 마지막 2분은 흔들림이 커진다. */
+    private static final int CLOSING_WINDOW_SECONDS = 120;
     static final int TICKS_PER_NEWS = NEWS_INTERVAL_SECONDS / TICK_SECONDS;
     static final int RUMOR_LEAD_TICKS = RUMOR_LEAD_SECONDS / TICK_SECONDS;
-    static final long CLOSING_TICK = CLOSING_SECONDS / TICK_SECONDS;
     /** 풀 가격이 목표가와의 차이를 1초에 좁히는 비율(2초에 20%와 같다). */
     private static final double CHASE_PER_TICK = 1 - Math.pow(Math.sqrt(0.8), TICK_SECONDS);
     private static final double RUMOR_CHANCE = 0.6;
@@ -42,9 +41,12 @@ public final class Market {
     private final List<NewsItem> history = new ArrayList<>();
     private List<MarketNews> deck = MarketNews.shuffledDeck();
     private String trueRumorSymbol;
+    private final long closingTick;
 
-    public Market(RandomGenerator random) {
+    /** @param sessionSeconds 출근부터 퇴근까지 길이. 마지막 2분이 장 마감 구간이다. */
+    public Market(RandomGenerator random, long sessionSeconds) {
         this.random = random;
+        this.closingTick = Math.max(0, sessionSeconds - CLOSING_WINDOW_SECONDS) / TICK_SECONDS;
         // 초당 흔들림. 2초 간격일 때의 1.5%·2.5%·0.8%와 같은 세기다.
         add("민트식품", 0.0106);
         add("달나라로봇", 0.0177);
@@ -84,7 +86,7 @@ public final class Market {
             spreadRumor();
         }
         if (phase == 0) publishNews();
-        double scale = tick >= CLOSING_TICK ? CLOSING_VOLATILITY : 1;
+        double scale = tick >= closingTick ? CLOSING_VOLATILITY : 1;
         drifts.forEach((symbol, drift) -> pools.get(symbol).moveToward(drift.advance(scale, random), CHASE_PER_TICK));
     }
 
