@@ -301,7 +301,15 @@ public class LobbySocket extends TextWebSocketHandler {
         sendDesk(session, desk);
         send(session, Map.of("type", "fill", "symbol", symbol, "quantity", quantity,
                 "side", buying ? "매수" : "매도", "amount", amount));
+        sendMyTrades(session, lobby, member.player());
         broadcastMarket(lobby);
+    }
+
+    /** 이번 판에서 내가 한 거래. 주문할 때와 재접속할 때 보낸다. */
+    private void sendMyTrades(WebSocketSession session, Lobby lobby, UUID player) throws IOException {
+        var label = lobby.labels.get(player);
+        send(session, Map.of("type", "myTrades",
+                "trades", lobby.trades.stream().filter(t -> t.player().equals(label)).toList()));
     }
 
     private void runMarket(Lobby lobby) {
@@ -385,7 +393,9 @@ public class LobbySocket extends TextWebSocketHandler {
                 continue;
             }
             var wallet = lobby.desks.get(entry.getKey()).wallet();
+            var market = lobby.market;
             send(entry.getValue(), Map.ofEntries(Map.entry("type", "market"),
+                    Map.entry("portfolio", wallet.portfolio(market::pool)),
                     Map.entry("prices", prices), Map.entry("pools", pools),
                     Map.entry("holdings", wallet.holdings()), Map.entry("headline", latest.headline()),
                     Map.entry("newsKind", latest.kind()), Map.entry("newsNumber", latest.number()),
@@ -458,6 +468,7 @@ public class LobbySocket extends TextWebSocketHandler {
             if (!lobby.started()) return;
             send(session, Map.of("type", "catalog", "stocks", catalogMessage));
             sendDesk(session, lobby.desks.get(player));
+            sendMyTrades(session, lobby, player);
             if (lobby.finished) {
                 sendResult(lobby, player, session);
             } else {

@@ -68,9 +68,10 @@
   <section id="market" hidden>
     <h2>주식 거래</h2>
     <table>
-      <thead><tr><th>종목</th><th>기준가</th><th>내 보유량</th></tr></thead>
+      <thead><tr><th>종목</th><th>기준가</th><th>내 보유량</th><th>평균 매수가</th><th>청산가</th><th>손익</th></tr></thead>
       <tbody id="quotes"></tbody>
     </table>
+    <p id="profitSummary"></p>
     <form id="order">
       <label>종목 <select id="symbol"></select></label>
       <label>수량 <input id="quantity" type="number" min="1" step="1" value="1" required></label>
@@ -79,6 +80,14 @@
     </form>
     <p id="estimate" aria-live="polite"></p>
     <p id="fill" role="status"></p>
+    <details id="myTradesBox">
+      <summary>내 거래 내역</summary>
+      <p id="myTradesEmpty">아직 거래가 없습니다.</p>
+      <table>
+        <thead><tr><th>시각</th><th>종목</th><th>구분</th><th>수량</th><th>금액</th><th>주당</th></tr></thead>
+        <tbody id="myTrades"></tbody>
+      </table>
+    </details>
   </section>
   <section id="results" hidden>
     <h2>퇴근! 최종 순위</h2>
@@ -190,6 +199,10 @@
     if (!event.repeat) socket.send('SWITCH');
   });
   const won = value => value.toLocaleString('ko-KR') + '원';
+  const signedWon = value => (value > 0 ? '+' : '') + won(value);
+  const signedPercent = value => (value > 0 ? '+' : '') + value.toFixed(1) + '%';
+  // 한국 증시 관례대로 이익은 빨강, 손실은 파랑.
+  const profitColor = value => value > 0 ? '#c62828' : value < 0 ? '#1565c0' : '';
   el('order').onsubmit = event => {
     event.preventDefault();
     const side = event.submitter?.value;
@@ -322,7 +335,7 @@
     el('status').textContent = mine ? '퇴근했습니다. ' + mine.rank + '위 · 순자산 ' + won(mine.netWorthWon) : '퇴근했습니다.';
   }
 
-  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds}) {
+  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds, portfolio}) {
     showView(view);
     renderClock(remainingSeconds);
     pools = nextPools;
@@ -365,7 +378,20 @@
       row.insertCell().textContent = stockName(symbol);
       row.insertCell().textContent = won(prices[symbol]);
       row.insertCell().textContent = (holdings[symbol] ?? 0) + '주';
+      const position = portfolio.positions[symbol];
+      row.insertCell().textContent = position ? won(position.avgPriceWon) : '-';
+      row.insertCell().textContent = position ? won(position.valueWon) : '-';
+      const profit = row.insertCell();
+      if (position) {
+        profit.textContent = signedWon(position.profitWon) + ' (' + signedPercent(position.profitPercent) + ')';
+        profit.style.color = profitColor(position.profitWon);
+      } else {
+        profit.textContent = '-';
+      }
     }
+    const open = Object.values(portfolio.positions).reduce((sum, p) => sum + p.profitWon, 0);
+    el('profitSummary').textContent = '보유 주식 손익 ' + signedWon(open) + ' · 판 주식에서 확정된 손익 ' +
+      signedWon(portfolio.realizedWon) + ' (청산가는 지금 혼자 전부 팔면 받을 금액이며, 퇴근 정산도 이 값으로 합니다)';
     renderEstimate();
   }
   el('answerForm').onsubmit = event => {
@@ -374,7 +400,22 @@
       socket.send('WORK ' + taskNumber + ' ' + el('answer').value);
     }
   };
+  function renderMyTrades(trades) {
+    const body = el('myTrades');
+    body.replaceChildren();
+    el('myTradesEmpty').hidden = trades.length > 0;
+    for (const t of [...trades].reverse()) {
+      const tr = body.insertRow();
+      for (const text of [clockText(t.second), stockName(t.symbol), t.side, t.quantity + '주',
+          won(t.amountWon), won(Math.round(t.amountWon / t.quantity))]) {
+        tr.insertCell().textContent = text;
+      }
+    }
+  }
+
   function resetGameView() {
+    renderMyTrades([]);
+    el('profitSummary').textContent = '';
     clearNews();
     el('results').hidden = true;
     el('market').hidden = true;
@@ -425,6 +466,8 @@
       showView('MEETING');
     } else if (message.type === 'market') {
       renderMarket(message);
+    } else if (message.type === 'myTrades') {
+      renderMyTrades(message.trades);
     } else if (message.type === 'catalog') {
       stocks = message.stocks;
     } else if (message.type === 'result') {

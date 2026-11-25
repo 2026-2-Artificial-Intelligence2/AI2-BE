@@ -3,12 +3,18 @@ package game.officestock.player;
 import game.officestock.market.StockPool;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.function.Function;
 
 public final class PlayerWallet {
     private long cashWon;
     private long workIncomeWon;
     private long completedTasks;
     private final Map<String, Long> holdings = new HashMap<>();
+    /** 종목별 지금 들고 있는 주식의 매수 원가(평균법). 일부를 팔면 판 비율만큼 줄어든다. */
+    private final Map<String, Long> costBasis = new HashMap<>();
+    /** 판 주식에서 확정된 손익의 합. */
+    private long realizedWon;
 
     public Map<String, Long> holdings() {
         return Map.copyOf(holdings);
@@ -20,6 +26,7 @@ public final class PlayerWallet {
         long cost = pool.buy(quantity, cashWon);
         cashWon -= cost;
         holdings.put(symbol, nextHolding);
+        costBasis.merge(symbol, cost, Math::addExact);
         return cost;
     }
 
@@ -28,6 +35,12 @@ public final class PlayerWallet {
         long proceeds = pool.sell(quantity, owned, Long.MAX_VALUE - cashWon);
         cashWon += proceeds;
         holdings.put(symbol, owned - quantity);
+        long basis = costBasis.getOrDefault(symbol, 0L);
+        // 판 주식의 원가 = 보유 원가 × 판 수량 / 보유 수량(반올림). 다 팔면 남은 원가 전부.
+        long soldCost = quantity == owned ? basis
+                : Math.round((double) basis * quantity / owned);
+        costBasis.put(symbol, basis - soldCost);
+        realizedWon += proceeds - soldCost;
         return proceeds;
     }
 
@@ -58,5 +71,29 @@ public final class PlayerWallet {
 
     public Balance balance() {
         return new Balance(cashWon, workIncomeWon, completedTasks);
+    }
+
+    /**
+     * 보유 종목 하나의 현황. 평가는 퇴근 정산과 같은 청산가(지금 혼자 전부 팔면 받을 금액)다.
+     * @param avgPriceWon 평균 매수가(원가 ÷ 수량, 내림)
+     * @param profitWon 청산가 − 원가
+     * @param profitPercent 원가 대비 손익률(%), 소수 첫째 자리
+     */
+    public record Position(long shares, long costWon, long avgPriceWon, long valueWon,
+                           long profitWon, double profitPercent) {}
+
+    public record Portfolio(Map<String, Position> positions, long realizedWon) {}
+
+    /** @param pools 종목 코드로 풀을 찾는다. 청산가 계산에 쓴다. */
+    public Portfolio portfolio(Function<String, StockPool> pools) {
+        var positions = new TreeMap<String, Position>();
+        holdings.forEach((symbol, shares) -> {
+            if (shares <= 0) return;
+            long cost = costBasis.getOrDefault(symbol, 0L);
+            long value = pools.apply(symbol).quoteSell(shares);
+            double percent = cost == 0 ? 0 : Math.round((value - cost) * 1000.0 / cost) / 10.0;
+            positions.put(symbol, new Position(shares, cost, cost / shares, value, value - cost, percent));
+        });
+        return new Portfolio(positions, realizedWon);
     }
 }
