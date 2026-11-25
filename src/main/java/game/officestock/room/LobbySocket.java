@@ -231,7 +231,10 @@ public class LobbySocket extends TextWebSocketHandler {
         for (var player : players) {
             lobby.labels.putIfAbsent(player, "P" + (players.indexOf(player) + 1));
             lobby.desks.computeIfAbsent(player, id -> new WorkDesk(startingCashWon, workRewardWon, now));
-            if (!lobby.clients.containsKey(player)) lobby.desks.get(player).observeView(false, now);
+            if (!lobby.clients.containsKey(player)) {
+                lobby.desks.get(player).observeView(false, now);
+                lobby.patrol.seats.get(player).present = false;
+            }
         }
         broadcast(lobby);
         for (var entry : lobby.clients.entrySet()) {
@@ -258,6 +261,7 @@ public class LobbySocket extends TextWebSocketHandler {
             throw new IllegalArgumentException("업무 번호와 답은 정수여야 합니다.");
         }
         if (timing != null) {
+            member.lobby().patrol.onWorkDone(member.player());
             playtest.task(member.lobby().logName(), member.lobby().labels.get(member.player()), timing);
         }
         sendDesk(session, desk);
@@ -389,7 +393,8 @@ public class LobbySocket extends TextWebSocketHandler {
         for (var entry : lobby.clients.entrySet()) {
             var seat = lobby.patrol.seats.get(entry.getKey());
             if (seat.view == Patrol.View.MEETING) {
-                send(entry.getValue(), Map.of("type", "meeting", "newsNumber", latest.number()));
+                send(entry.getValue(), Map.of("type", "meeting", "newsNumber", latest.number(),
+                        "reason", seat.meetingReason));
                 continue;
             }
             var wallet = lobby.desks.get(entry.getKey()).wallet();
@@ -403,6 +408,7 @@ public class LobbySocket extends TextWebSocketHandler {
                     Map.entry("view", seat.view), Map.entry("beat", lobby.patrol.beat),
                     Map.entry("walking", lobby.patrol.walking),
                     Map.entry("step", lobby.patrol.step(seat)),
+                    Map.entry("coughBeat", seat.coughBeat),
                     Map.entry("remainingSeconds",
                             (lobby.sessionTicks - lobby.tick) * Market.TICK_SECONDS)));
         }
@@ -473,6 +479,7 @@ public class LobbySocket extends TextWebSocketHandler {
                 sendResult(lobby, player, session);
             } else {
                 var seat = lobby.patrol.seats.get(player);
+                seat.present = true;
                 lobby.desks.get(player).observeView(seat.view == Patrol.View.WORK, System.nanoTime());
                 broadcastMarket(lobby);
             }
@@ -524,7 +531,10 @@ public class LobbySocket extends TextWebSocketHandler {
             long now = System.nanoTime();
             lobby.offlineSince.put(member.player(), now);
             var seat = lobby.patrol.seats.get(member.player());
-            if (seat != null && seat.view == Patrol.View.MARKET) seat.view = Patrol.View.WORK;
+            if (seat != null) {
+                seat.present = false;
+                if (seat.view == Patrol.View.MARKET) seat.view = Patrol.View.WORK;
+            }
             var desk = lobby.desks.get(member.player());
             if (desk != null) desk.observeView(false, now);
             if (rooms.get(lobby.code) == lobby) broadcast(lobby);

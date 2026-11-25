@@ -179,6 +179,35 @@
       sound.onended = () => { sound.disconnect(); gain.disconnect(); pan.disconnect(); };
     }
   }
+  // 부장님 헛기침: 의심이 70을 넘는 순간 그 사람에게만, 부장님이 있는 쪽에서 들린다. "흠, 흠" 두 번.
+  let lastCoughBeat = -1;
+  function cough({to, listener}) {
+    if (audio?.state !== 'running') return;
+    const x = to.x - listener.position.x;
+    const z = to.z - listener.position.z;
+    const length = Math.floor(audio.sampleRate * 0.22);
+    const noise = audio.createBuffer(1, length, audio.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    for (const delay of [0, 0.35]) {
+      const t = audio.currentTime + delay;
+      const source = new AudioBufferSourceNode(audio, {buffer: noise});
+      const voice = new BiquadFilterNode(audio, {type: 'bandpass', frequency: 520, Q: 1.4});
+      const gain = audio.createGain();
+      const pan = new PannerNode(audio, {
+        panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 1,
+        positionX: -listener.forwardZ * x, positionY: 0.6, positionZ: -listener.forwardZ * z
+      });
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.55, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      source.connect(voice).connect(gain).connect(pan).connect(audio.destination);
+      source.start(t);
+      source.stop(t + 0.22);
+      source.onended = () => { source.disconnect(); voice.disconnect(); gain.disconnect(); pan.disconnect(); };
+    }
+  }
+
   function showView(view) {
     const seated = view === 'WORK' || view === 'MARKET';
     el('work').hidden = view !== 'WORK';
@@ -281,6 +310,7 @@
     clearTimeout(popupTimer);
     lastNewsNumber = 0;
     lastStep = -1;
+    lastCoughBeat = -1;
     showView(null);
     el('news').hidden = true;
     el('news').textContent = '';
@@ -335,7 +365,7 @@
     el('status').textContent = mine ? '퇴근했습니다. ' + mine.rank + '위 · 순자산 ' + won(mine.netWorthWon) : '퇴근했습니다.';
   }
 
-  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds, portfolio}) {
+  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds, portfolio, coughBeat}) {
     showView(view);
     renderClock(remainingSeconds);
     pools = nextPools;
@@ -350,6 +380,11 @@
     if (resuming) {
       resuming = false;
       lastNewsNumber = Math.max(lastNewsNumber, newsNumber);
+      lastCoughBeat = Math.max(lastCoughBeat, coughBeat);
+    }
+    if (coughBeat > lastCoughBeat) {
+      lastCoughBeat = coughBeat;
+      cough(step);
     }
     if (newsNumber > lastNewsNumber) {
       lastNewsNumber = newsNumber;
@@ -463,6 +498,9 @@
       showView(message.view);
     } else if (message.type === 'meeting') {
       lastNewsNumber = Math.max(lastNewsNumber, message.newsNumber);
+      el('meeting').textContent = message.reason === 'idle'
+        ? '부장님: "아까부터 올라오는 일이 하나도 없던데, 뭐 하고 있었어?" (업무 방치로 면담 중)'
+        : '부장님: "근무 시간에 주식이야?" (주식 창을 들켜 면담 중)';
       showView('MEETING');
     } else if (message.type === 'market') {
       renderMarket(message);
