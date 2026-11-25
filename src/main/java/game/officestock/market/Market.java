@@ -23,13 +23,18 @@ public final class Market {
     private static final double RUMOR_CHANCE = 0.6;
     private static final double TRUE_RUMOR_CHANCE = 0.7;
     private static final double CLOSING_VOLATILITY = 2.5;
+    /**
+     * 발표 때마다 종목별 실제 변화율을 적힌 값의 ±25% 안에서 흔든다. 같은 숫자를 적은 종목끼리도,
+     * 같은 뉴스가 다시 나와도 움직임이 조금씩 다르다. 평균은 적힌 값 그대로다.
+     */
+    private static final double NEWS_JITTER = 0.25;
 
     /**
      * @param kind "news"(속보) 또는 "rumor"(찌라시)
-     * @param symbol 관련 종목 코드
+     * @param symbols 관련 종목 코드. 여러 종목 뉴스면 여러 개
      * @param body 본문. 찌라시나 본문 없는 뉴스는 null
      */
-    public record NewsItem(int number, String kind, String symbol, String headline, String body) {}
+    public record NewsItem(int number, String kind, List<String> symbols, String headline, String body) {}
 
     private final RandomGenerator random;
     private final Map<String, StockPool> pools = new LinkedHashMap<>();
@@ -104,9 +109,13 @@ public final class Market {
         var next = upcoming();
         String symbol;
         int changePercent;
+        Integer upcomingChange;
         if (random.nextDouble() < TRUE_RUMOR_CHANCE) {
-            symbol = next.stock();
-            changePercent = next.changePercent();
+            // 진짜: 다가오는 뉴스에서 가장 크게 움직일 종목을 가리킨다.
+            var biggest = next.moves().entrySet().stream()
+                    .max((a, b) -> Integer.compare(Math.abs(a.getValue()), Math.abs(b.getValue()))).orElseThrow();
+            symbol = biggest.getKey();
+            changePercent = biggest.getValue();
             trueRumorSymbol = symbol;
         } else {
             // 가짜: 다가오는 뉴스와 종목이나 방향 중 하나 이상이 다르다.
@@ -117,25 +126,31 @@ public final class Market {
                 var cards = news.cardsFor(stock.id());
                 var sample = cards.get(random.nextInt(cards.size()));
                 symbol = stock.id();
-                changePercent = (random.nextBoolean() ? 1 : -1) * Math.abs(sample.changePercent());
-            } while (symbol.equals(next.stock())
-                    && Integer.signum(changePercent) == Integer.signum(next.changePercent()));
+                changePercent = (random.nextBoolean() ? 1 : -1) * Math.abs(sample.moves().get(symbol));
+                upcomingChange = next.moves().get(symbol);
+            } while (upcomingChange != null
+                    && Integer.signum(changePercent) == Integer.signum(upcomingChange));
         }
         drifts.get(symbol).onRumor(changePercent, RUMOR_LEAD_TICKS);
         var phrases = changePercent > 0 ? news.rumors().good() : news.rumors().bad();
         var text = phrases.get(random.nextInt(phrases.size()))
                 .replace(NewsCatalog.NAME, catalog.stock(symbol).name());
-        history.add(new NewsItem(history.size() + 1, "rumor", symbol, text, null));
+        history.add(new NewsItem(history.size() + 1, "rumor", List.of(symbol), text, null));
     }
 
     private void publishNews() {
         var card = upcoming();
         deck.removeLast();
         drifts.values().forEach(PriceDrift::clearRumor);
-        boolean rumored = card.stock().equals(trueRumorSymbol);
+        // 종목마다 따로 반응한다: 실제 폭(±25%)도, 과잉 반응·선반영 같은 경로도 종목별로 정해진다.
+        card.moves().forEach((id, change) -> {
+            double jittered = change * (1 + NEWS_JITTER * (2 * random.nextDouble() - 1));
+            drifts.get(id).onNews(Math.max(jittered, -95), id.equals(trueRumorSymbol), random);
+        });
         trueRumorSymbol = null;
-        drifts.get(card.stock()).onNews(card.changePercent(), rumored, random);
-        history.add(new NewsItem(history.size() + 1, "news", card.stock(),
-                catalog.stock(card.stock()).name() + " · " + card.headline(), card.body()));
+        var headline = card.multiStock() ? card.headline()
+                : catalog.stock(card.stock()).name() + " · " + card.headline();
+        history.add(new NewsItem(history.size() + 1, "news",
+                List.copyOf(card.moves().keySet()), headline, card.body()));
     }
 }

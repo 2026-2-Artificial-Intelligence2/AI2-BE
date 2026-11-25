@@ -291,7 +291,7 @@ public class LobbySocket extends TextWebSocketHandler {
     private void broadcastMarket(Lobby lobby) throws IOException {
         var history = lobby.market.history();
         var latest = history.isEmpty()
-                ? new Market.NewsItem(0, "news", "", "", null) : history.getLast();
+                ? new Market.NewsItem(0, "news", List.of(), "", null) : history.getLast();
         var prices = new HashMap<String, Long>();
         var pools = new HashMap<String, StockPool.Reserves>();
         lobby.market.pools().forEach((symbol, pool) -> {
@@ -310,6 +310,7 @@ public class LobbySocket extends TextWebSocketHandler {
                     Map.entry("prices", prices), Map.entry("pools", pools),
                     Map.entry("holdings", wallet.holdings()), Map.entry("headline", latest.headline()),
                     Map.entry("newsKind", latest.kind()), Map.entry("newsNumber", latest.number()),
+                    Map.entry("newsBody", latest.body() == null ? "" : latest.body()),
                     Map.entry("view", seat.view), Map.entry("beat", lobby.patrol.beat),
                     Map.entry("walking", lobby.patrol.walking),
                     Map.entry("step", lobby.patrol.step(seat)),

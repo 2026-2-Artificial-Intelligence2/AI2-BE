@@ -54,7 +54,7 @@ final class PriceDrift {
      * 진짜 뉴스. 적정가는 항상 뉴스 방향으로 움직이고, 지나가는 경로만 달라진다.
      * @return 이번 반응의 종류(로그·테스트용)
      */
-    Reaction onNews(int changePercent, boolean rumoredBefore, RandomGenerator random) {
+    Reaction onNews(double changePercent, boolean rumoredBefore, RandomGenerator random) {
         double move = Math.log1p(changePercent / 100.0);
         fairWon = Math.clamp(fairWon * (1 + changePercent / 100.0), minFair, maxFair);
         rumorDrift = 0;

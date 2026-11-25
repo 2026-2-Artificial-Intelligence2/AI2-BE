@@ -16,6 +16,16 @@
     color: white;
     pointer-events: none;
   }
+  #news strong { display: block; }
+  /* 팝업 본문은 한 줄만 보이고, 넘치면 …로 줄인다. 전체는 알림창에서 읽는다. */
+  #news .body {
+    display: block;
+    margin-top: .25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: .85;
+  }
 </style>
 <main>
   <h1>부장님 몰래</h1>
@@ -282,7 +292,7 @@
     el('status').textContent = mine ? '퇴근했습니다. ' + mine.rank + '위 · 순자산 ' + won(mine.netWorthWon) : '퇴근했습니다.';
   }
 
-  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsNumber, view, beat, walking, step, remainingSeconds}) {
+  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds}) {
     showView(view);
     renderClock(remainingSeconds);
     pools = nextPools;
@@ -295,10 +305,18 @@
     el('inbox').hidden = false;
     if (newsNumber > lastNewsNumber) {
       lastNewsNumber = newsNumber;
-      news.textContent = newsLabel(newsKind) + headline;
+      const title = document.createElement('strong');
+      title.textContent = newsLabel(newsKind) + headline;
+      news.replaceChildren(title);
+      if (newsBody) {
+        const line = document.createElement('span');
+        line.className = 'body';
+        line.textContent = newsBody;
+        news.append(line);
+      }
       news.hidden = false;
       clearTimeout(popupTimer);
-      popupTimer = setTimeout(() => { news.hidden = true; }, 4000);
+      popupTimer = setTimeout(() => { news.hidden = true; }, newsBody ? 5000 : 4000);
       requestHistory();
     }
     const symbols = stocks.map(s => s.id).filter(id => id in prices);
