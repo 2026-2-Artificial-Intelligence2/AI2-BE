@@ -18,9 +18,30 @@ public record StockCatalog(List<Stock> stocks) {
      * @param startPriceWon 시작 기준가. 적정가는 이 값의 1/10~10배 안에서 움직인다.
      * @param poolShares 풀의 주식 수. 클수록 큰 주문에도 가격이 덜 밀린다.
      * @param volatilityPerSecond 평소 흔들림의 초당 표준편차(0.01 = 1%)
+     * @param story 출근 전 주가 흐름(선택). 구간을 순서대로 이어 붙여 차트의 과거 봉을 만들고, 마지막은 시작가에 닿는다.
      */
     public record Stock(String id, String name, long startPriceWon, long poolShares,
-                        double volatilityPerSecond) {}
+                        double volatilityPerSecond, List<StorySegment> story) {
+        public Stock {
+            story = story == null ? List.of() : List.copyOf(story);
+        }
+
+        public Stock(String id, String name, long startPriceWon, long poolShares, double volatilityPerSecond) {
+            this(id, name, startPriceWon, poolShares, volatilityPerSecond, List.of());
+        }
+    }
+
+    /**
+     * 출근 전 흐름의 한 구간.
+     * @param candles 이 구간의 10초 봉 개수
+     * @param changePercent 구간 처음부터 끝까지의 변화율(%)
+     * @param volatility 봉 하나의 흔들림(표준편차, 0.005 = 0.5%)
+     * @param note 차트에 "지난 소식"으로 표시할 설명(선택)
+     */
+    public record StorySegment(int candles, double changePercent, double volatility, String note) {}
+
+    /** 출근 전 흐름의 최대 길이(10초 봉 개수). 360개면 1시간. */
+    public static final int MAX_STORY_CANDLES = 360;
 
     public StockCatalog {
         if (stocks == null || stocks.isEmpty()) throw invalid("종목이 하나 이상 필요합니다.");
@@ -38,6 +59,18 @@ public record StockCatalog(List<Stock> stocks) {
             Math.multiplyExact(s.startPriceWon(), s.poolShares());
             if (!(s.volatilityPerSecond() >= 0 && s.volatilityPerSecond() < 0.2))
                 throw invalid(s.id() + ": 흔들림은 0 이상 0.2 미만이어야 합니다.");
+            int storyCandles = 0;
+            for (var seg : s.story()) {
+                if (seg.candles() < 1) throw invalid(s.id() + ": story 구간의 candles는 1 이상이어야 합니다.");
+                if (!(seg.changePercent() > -100)) throw invalid(s.id() + ": story 구간의 changePercent는 -100보다 커야 합니다.");
+                if (!(seg.volatility() >= 0 && seg.volatility() < 0.1))
+                    throw invalid(s.id() + ": story 구간의 volatility는 0 이상 0.1 미만이어야 합니다.");
+                if (seg.note() != null && seg.note().length() > 40)
+                    throw invalid(s.id() + ": story 구간의 note는 40자 이내여야 합니다.");
+                storyCandles += seg.candles();
+            }
+            if (storyCandles > MAX_STORY_CANDLES)
+                throw invalid(s.id() + ": story는 모두 합쳐 " + MAX_STORY_CANDLES + "봉(1시간)까지입니다.");
         }
     }
 

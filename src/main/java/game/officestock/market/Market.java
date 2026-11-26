@@ -61,6 +61,8 @@ public final class Market {
     private String trueRumorSymbol;
     private final long closingTick;
     private final PriceChart chart = new PriceChart();
+    /** 출근 전 흐름의 "지난 소식"(차트 표시용). */
+    private final List<Map<String, Object>> storyNotes = new ArrayList<>();
     /** 지금 판 경과 초. 뉴스 시각과 봉 기록에 쓴다. */
     private long second;
 
@@ -79,6 +81,15 @@ public final class Market {
             drifts.put(stock.id(), new PriceDrift(stock.startPriceWon(), stock.volatilityPerSecond()));
         }
         deck = MarketNews.shuffledDeck(news, random);
+        for (var stock : catalog.stocks()) {
+            if (stock.story().isEmpty()) continue;
+            var story = PriceStory.generate(stock, random);
+            chart.addHistory(stock.id(), story.candles());
+            for (var note : story.notes()) {
+                storyNotes.add(Map.of("second", note.second(), "kind", "past",
+                        "symbols", List.of(stock.id()), "headline", note.text()));
+            }
+        }
         for (var symbol : pools.keySet()) chart.record(symbol, 0, spotPrice(symbol), 0);
     }
 
@@ -88,6 +99,11 @@ public final class Market {
 
     public PriceChart chart() {
         return chart;
+    }
+
+    /** 출근 전 흐름의 지난 소식. 차트에 "past" 종류로 표시한다. */
+    public List<Map<String, Object>> storyNotes() {
+        return storyNotes;
     }
 
     /** 실제 증권사 호가 단위(2023년 이후 코스피 기준)를 따른다. */
