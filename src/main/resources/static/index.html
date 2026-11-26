@@ -471,13 +471,18 @@
   const stockName = id => stocks.find(s => s.id === id)?.name ?? id;
   let cashNow = 0n;
   const ceilDiv = (a, b) => (a + b - 1n) / b;
-  function quote(symbol, quantity) {
+  // 거래 비용(bp). 사고팔 때 각각 붙고, 원 단위로 올림한다. 서버 PlayerWallet.feeFor와 같다.
+  let feeBps = 0n;
+  const feeFor = amount => (amount * feeBps + 9999n) / 10000n;
+  // 예상 금액. 기본은 거래 비용을 넣은 값(매수는 낼 돈, 매도는 받을 돈), gross=true면 풀과 주고받는 대금만.
+  function quote(symbol, quantity, gross = false) {
     const pool = pools[symbol];
     if (!pool || !(quantity > 0n)) return null;
     const shares = BigInt(pool.shares), cash = BigInt(pool.cashWon), k = shares * cash;
     const buy = quantity < shares ? ceilDiv(k, shares - quantity) - cash : null;
     const sell = cash - ceilDiv(k, shares + quantity);
-    return {buy, sell};
+    if (gross) return {buy, sell};
+    return {buy: buy === null ? null : buy + feeFor(buy), sell: sell - feeFor(sell)};
   }
   function renderEstimate() {
     const out = el('estimate');
@@ -496,7 +501,7 @@
         (q.buy > cashNow ? ' · 현금 부족' : '');
     const sellText = quantity > owned ? '매도 불가 (보유 ' + owned + '주)'
       : '예상 매도 금액 ' + won(Number(q.sell)) + ' (평균 ' + avg(q.sell) + ')';
-    out.textContent = buyText + ' · ' + sellText + ' — 주문이 도착할 때 시세가 바뀌면 달라질 수 있습니다.';
+    out.textContent = buyText + ' · ' + sellText + ' — 거래 비용 ' + (Number(feeBps) / 100) + '% 포함, 주문이 도착할 때 시세가 바뀌면 달라질 수 있습니다.';
   }
   // 금액 주문: 매수는 그 금액(과 가진 현금) 안에서 최대 수량, 매도는 그 금액 이상을 받는 최소 수량.
   function renderWonEstimate(out, symbol, amount) {
@@ -512,7 +517,7 @@
       while (a < b) { const mid = (a + b) / 2n; if (quote(symbol, mid).sell >= amount) b = mid; else a = mid + 1n; }
       sellText = '약 ' + a + '주 매도 (' + won(Number(quote(symbol, a).sell)) + ')' + (quote(symbol, a).sell < amount ? ' · 전부 팔아도 모자람' : '');
     }
-    out.textContent = buyText + ' · ' + sellText + ' — 주문이 도착할 때 시세가 바뀌면 달라질 수 있습니다.';
+    out.textContent = buyText + ' · ' + sellText + ' — 거래 비용 ' + (Number(feeBps) / 100) + '% 포함, 주문이 도착할 때 시세가 바뀌면 달라질 수 있습니다.';
   }
 
   // 지정가: 묶일 현금·주식과, 지금 시세라면 바로 체결되는지 보여준다.
@@ -521,9 +526,10 @@
     try { price = BigInt(el('limitPrice').value); } catch { price = 0n; }
     if (price <= 0n) { out.textContent = '가격을 입력하세요. 호가창의 칸을 누르면 그 가격이 들어갑니다.'; return; }
     const total = price * quantity;
-    const buyNow = q.buy !== null && q.buy <= total;
-    const sellNow = q.sell >= total;
-    const buyText = '매수: 현금 ' + won(Number(total)) + ' 묶임' + (total > cashNow ? ' · 현금 부족' : '') +
+    const g = quote(symbol, quantity, true);
+    const buyNow = g.buy !== null && g.buy <= total;
+    const sellNow = g.sell >= total;
+    const buyText = '매수: 현금 ' + won(Number(total + feeFor(total))) + ' 묶임(거래 비용 포함)' + (total + feeFor(total) > cashNow ? ' · 현금 부족' : '') +
       (buyNow ? ' · 지금 시세면 바로 체결' : ' · 평균 ' + won(Number(price)) + ' 이하가 되면 체결');
     const sellText = quantity > owned ? '매도: 팔 수 있는 주식 부족' :
       '매도: ' + quantity + '주 묶임' + (sellNow ? ' · 지금 시세면 바로 체결' : ' · 평균 ' + won(Number(price)) + ' 이상이 되면 체결');
@@ -1088,6 +1094,7 @@
     } else if (message.type === 'catalog') {
       stocks = message.stocks;
       loanTerms = message.loan;
+      feeBps = BigInt(message.feeBps ?? 0);
       el('loan').textContent = '비상 대출 받기 (한 판에 한 번 · 최대 ' + won(loanTerms.maxWon) +
         ' · 퇴근 때 원금의 ' + (100 + loanTerms.interestPercent) + '% 상환)';
     } else if (message.type === 'notice') {
@@ -1106,7 +1113,7 @@
       }
       el('fill').textContent =
         stockName(message.symbol) + ' ' + message.quantity + '주 ' + message.side +
-        ' 체결 · 총 ' + won(message.amount);
+        ' 체결 · 총 ' + won(message.amount) + (message.feeWon ? ' (거래 비용 ' + won(message.feeWon) + ' 포함)' : '');
     } else if (message.type === 'work') {
       const {task, balance, rewardWon} = message.desk;
       const advanced = taskNumber !== null && task.number > taskNumber;

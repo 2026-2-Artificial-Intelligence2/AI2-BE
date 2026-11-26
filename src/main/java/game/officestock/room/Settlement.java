@@ -32,7 +32,7 @@ final class Settlement {
             for (var entry : desk.wallet().holdings().entrySet()) {
                 if (entry.getValue() <= 0) continue;
                 holdings.put(entry.getKey(), entry.getValue());
-                stockValue += market.pool(entry.getKey()).quoteSell(entry.getValue());
+                stockValue += desk.wallet().liquidationValue(market.pool(entry.getKey()), entry.getValue());
             }
             rows.add(new Standing(0, player, balance.cashWon() + stockValue - balance.loanRepayWon(),
                     balance.cashWon(), stockValue, balance.loanRepayWon(), balance.workIncomeWon(),

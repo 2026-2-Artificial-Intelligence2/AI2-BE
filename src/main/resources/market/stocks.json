@@ -3,8 +3,8 @@
     {
       "id": "MINT",
       "name": "민트식품",
-      "startPriceWon": 1000,
-      "poolShares": 1000,
+      "startPriceWon": 12000,
+      "poolShares": 8333,
       "volatilityPerSecond": 0.0106,
       "story": [
         {"candles": 60, "changePercent": 6, "volatility": 0.006, "note": "민트초코 라면 출시 소식에 상승"},
@@ -15,8 +15,8 @@
     {
       "id": "MOON",
       "name": "달나라로봇",
-      "startPriceWon": 1000,
-      "poolShares": 1000,
+      "startPriceWon": 25000,
+      "poolShares": 4000,
       "volatilityPerSecond": 0.0177,
       "story": [
         {"candles": 40, "changePercent": 15, "volatility": 0.01, "note": "물류 로봇 수주 기대감 급등"},
@@ -28,8 +28,8 @@
     {
       "id": "OURS",
       "name": "우리회사",
-      "startPriceWon": 1000,
-      "poolShares": 1000,
+      "startPriceWon": 8000,
+      "poolShares": 12500,
       "volatilityPerSecond": 0.0057,
       "story": [
         {"candles": 90, "changePercent": 2, "volatility": 0.003, "note": "분기 실적 무난"},

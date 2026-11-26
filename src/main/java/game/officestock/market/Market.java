@@ -28,6 +28,8 @@ public final class Market {
      * 같은 뉴스가 다시 나와도 움직임이 조금씩 다르다. 평균은 적힌 값 그대로다.
      */
     private static final double NEWS_JITTER = 0.25;
+    /** 속보가 난 틱에 가격이 목표가와의 차이를 한 번에 좁히는 비율. */
+    private static final double NEWS_GAP = 0.7;
 
     /**
      * @param kind "news"(속보) 또는 "rumor"(찌라시)
@@ -188,9 +190,12 @@ public final class Market {
         if (phase == TICKS_PER_NEWS - RUMOR_LEAD_TICKS && random.nextDouble() < RUMOR_CHANCE) {
             spreadRumor();
         }
+        newsThisTick.clear();
         if (phase == 0) publishNews();
         double scale = tick >= closingTick ? CLOSING_VOLATILITY : 1;
-        drifts.forEach((symbol, drift) -> pools.get(symbol).moveToward(drift.advance(scale, random), CHASE_PER_TICK));
+        // 속보가 난 종목은 그 순간 남은 차이의 NEWS_GAP만큼 바로 움직인다. 천천히 따라가면 먼저 사는 쪽이 거저 먹는다.
+        drifts.forEach((symbol, drift) -> pools.get(symbol).moveToward(drift.advance(scale, random),
+                newsThisTick.contains(symbol) ? NEWS_GAP : CHASE_PER_TICK));
         for (var symbol : pools.keySet()) chart.record(symbol, second, spotPrice(symbol), 0);
     }
 
@@ -232,12 +237,16 @@ public final class Market {
         history.add(new NewsItem(history.size() + 1, "rumor", List.of(symbol), text, null, second));
     }
 
+    /** 이번 틱에 속보가 난 종목. 그 틱에는 가격이 목표가로 크게 한 번에 움직인다(갭). */
+    private final java.util.Set<String> newsThisTick = new java.util.HashSet<>();
+
     private void publishNews() {
         var card = upcoming();
         deck.removeLast();
         drifts.values().forEach(PriceDrift::clearRumor);
         // 종목마다 따로 반응한다: 실제 폭(±25%)도, 과잉 반응·선반영 같은 경로도 종목별로 정해진다.
         card.moves().forEach((id, change) -> {
+            newsThisTick.add(id);
             double jittered = change * (1 + NEWS_JITTER * (2 * random.nextDouble() - 1));
             drifts.get(id).onNews(Math.max(jittered, -95), id.equals(trueRumorSymbol), random);
         });

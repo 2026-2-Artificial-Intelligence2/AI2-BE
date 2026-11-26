@@ -22,18 +22,48 @@ public final class PlayerWallet {
     /** 걸어 둔 지정가 매도 주문에 묶인 주식(보유량에는 포함되지만 따로 팔 수 없다). */
     private final Map<String, Long> lockedShares = new HashMap<>();
 
+    /** 거래 비용(사고팔 때 각각, 1bp = 0.01%). 몇 초짜리 단타의 확실한 이득을 깎는다. */
+    private final int feeBps;
+
     public Map<String, Long> holdings() {
         return Map.copyOf(holdings);
     }
 
-    public long buy(String symbol, StockPool pool, long quantity) {
+    /** 체결 결과. grossWon은 풀과 주고받은 금액, feeWon은 거래 비용. */
+    public record Fill(long grossWon, long feeWon) {
+        /** 매수면 낸 돈(대금+비용), 매도면 받은 돈(대금−비용). */
+        public long netWon(boolean buy) {
+            return buy ? grossWon + feeWon : grossWon - feeWon;
+        }
+    }
+
+    /** 금액에 붙는 거래 비용(원 단위 올림). */
+    public long feeFor(long amountWon) {
+        return (Math.multiplyExact(amountWon, (long) feeBps) + 9_999) / 10_000;
+    }
+
+    public int feeBps() {
+        return feeBps;
+    }
+
+    public Fill buy(String symbol, StockPool pool, long quantity) {
         if (quantity <= 0) throw new IllegalArgumentException("수량은 양수여야 합니다.");
         long nextHolding = Math.addExact(holdings.getOrDefault(symbol, 0L), quantity);
-        long cost = pool.buy(quantity, cashWon);
-        cashWon -= cost;
+        long quote = pool.quoteBuy(quantity);
+        if (quote == Long.MAX_VALUE) throw new IllegalArgumentException("매수할 수 없는 수량입니다.");
+        long fee = feeFor(quote);
+        if (Math.addExact(quote, fee) > cashWon) throw new IllegalArgumentException("매수할 현금이 부족합니다(거래 비용 포함).");
+        long cost = pool.buy(quantity, Long.MAX_VALUE);
+        cashWon -= cost + fee;
         holdings.put(symbol, nextHolding);
-        costBasis.merge(symbol, cost, Math::addExact);
-        return cost;
+        costBasis.merge(symbol, cost + fee, Math::addExact);
+        return new Fill(cost, fee);
+    }
+
+    /** 이 수량을 지금 혼자 전부 팔면 받을 금액(거래 비용 뺀 뒤). 손익과 퇴근 정산의 기준이다. */
+    public long liquidationValue(StockPool pool, long shares) {
+        long gross = pool.quoteSell(shares);
+        return gross - feeFor(gross);
     }
 
     /** 지정가 매도로 묶이지 않아 지금 팔 수 있는 수량. */
@@ -63,11 +93,13 @@ public final class PlayerWallet {
         lockedShares.merge(symbol, -quantity, Long::sum);
     }
 
-    public long sell(String symbol, StockPool pool, long quantity) {
+    public Fill sell(String symbol, StockPool pool, long quantity) {
         long owned = holdings.getOrDefault(symbol, 0L);
         if (quantity > sellable(symbol))
             throw new IllegalArgumentException("지정가 매도에 묶인 주식은 따로 팔 수 없습니다.");
-        long proceeds = pool.sell(quantity, owned, Long.MAX_VALUE - cashWon);
+        long gross = pool.sell(quantity, owned, Long.MAX_VALUE - cashWon);
+        long fee = feeFor(gross);
+        long proceeds = gross - fee;
         cashWon += proceeds;
         holdings.put(symbol, owned - quantity);
         long basis = costBasis.getOrDefault(symbol, 0L);
@@ -76,14 +108,16 @@ public final class PlayerWallet {
                 : Math.round((double) basis * quantity / owned);
         costBasis.put(symbol, basis - soldCost);
         realizedWon += proceeds - soldCost;
-        return proceeds;
+        return new Fill(gross, fee);
     }
 
-    public PlayerWallet(long startingCashWon) {
+    public PlayerWallet(long startingCashWon, int feeBps) {
         if (startingCashWon < 0) {
             throw new IllegalArgumentException("시작 자금은 음수일 수 없습니다.");
         }
+        if (feeBps < 0) throw new IllegalArgumentException("거래 비용은 음수일 수 없습니다.");
         cashWon = startingCashWon;
+        this.feeBps = feeBps;
     }
 
     public void rewardCompletedTask(long taskNumber, long rewardWon) {
@@ -139,7 +173,7 @@ public final class PlayerWallet {
         holdings.forEach((symbol, shares) -> {
             if (shares <= 0) return;
             long cost = costBasis.getOrDefault(symbol, 0L);
-            long value = pools.apply(symbol).quoteSell(shares);
+            long value = liquidationValue(pools.apply(symbol), shares);
             double percent = cost == 0 ? 0 : Math.round((value - cost) * 1000.0 / cost) / 10.0;
             positions.put(symbol, new Position(shares, cost, cost / shares, value, value - cost, percent));
         });

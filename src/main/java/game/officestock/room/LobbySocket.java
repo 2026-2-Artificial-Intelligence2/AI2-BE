@@ -6,6 +6,7 @@ import game.officestock.market.NewsCatalog;
 import game.officestock.market.PriceChart;
 import game.officestock.market.StockCatalog;
 import game.officestock.market.StockPool;
+import game.officestock.player.PlayerWallet;
 import game.officestock.player.WorkDesk;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
@@ -74,6 +75,8 @@ public class LobbySocket extends TextWebSocketHandler {
     /** 비상 대출: 누구나 한 판에 한 번, 상한 안에서 원하는 금액을 빌리고 퇴근 때 원금에 이자를 더해 뺀다. */
     private final int loanInterestPercent;
     private final long loanMaxWon;
+    /** 거래 비용(bp). 사고팔 때 각각 붙는다. */
+    private final int tradeFeeBps;
     private final PlaytestLog playtest;
     private final StockCatalog catalog;
     private final NewsCatalog news;
@@ -86,7 +89,8 @@ public class LobbySocket extends TextWebSocketHandler {
             @Value("${game.session-seconds}") long sessionSeconds,
             @Value("${game.lunch-early-return-chance}") double lunchEarlyReturnChance,
             @Value("${game.loan-interest-percent}") int loanInterestPercent,
-            @Value("${game.loan-max-won}") long loanMaxWon) {
+            @Value("${game.loan-max-won}") long loanMaxWon,
+            @Value("${game.trade-fee-bps}") int tradeFeeBps) {
         if (startingCashWon < 0 || workRewardWon <= 0 || sessionSeconds <= 0) {
             throw new IllegalArgumentException("시작 자금, 업무 수당, 근무 시간 설정을 확인하세요.");
         }
@@ -96,6 +100,8 @@ public class LobbySocket extends TextWebSocketHandler {
         this.loanInterestPercent = loanInterestPercent;
         if (loanMaxWon <= 0) throw new IllegalArgumentException("비상 대출 상한을 확인하세요.");
         this.loanMaxWon = loanMaxWon;
+        if (tradeFeeBps < 0 || tradeFeeBps > 1_000) throw new IllegalArgumentException("거래 비용 설정을 확인하세요.");
+        this.tradeFeeBps = tradeFeeBps;
         this.startingCashWon = startingCashWon;
         this.workRewardWon = workRewardWon;
         this.json = json;
@@ -349,7 +355,7 @@ public class LobbySocket extends TextWebSocketHandler {
         long now = System.nanoTime();
         // 잠시 연결이 끊긴 사람도 참가자다. 돌아오면 자기 책상에서 이어서 한다.
         for (var player : players) {
-            lobby.desks.computeIfAbsent(player, id -> new WorkDesk(startingCashWon, workRewardWon, now));
+            lobby.desks.computeIfAbsent(player, id -> new WorkDesk(startingCashWon, workRewardWon, tradeFeeBps, now));
             if (!lobby.clients.containsKey(player)) {
                 lobby.desks.get(player).observeView(false, now);
                 lobby.patrol.seats.get(player).present = false;
@@ -358,7 +364,8 @@ public class LobbySocket extends TextWebSocketHandler {
         broadcast(lobby);
         for (var entry : lobby.clients.entrySet()) {
             sendChart(entry.getValue(), lobby);
-            send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon)));
+            send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon),
+                    "feeBps", tradeFeeBps));
             sendDesk(entry.getValue(), lobby.desks.get(entry.getKey()));
         }
         broadcastMarket(lobby);
@@ -515,7 +522,10 @@ public class LobbySocket extends TextWebSocketHandler {
         if (fields[0].endsWith("WON")) {
             var wallet = desk.wallet();
             if (buying) {
-                quantity = pool.maxBuyable(Math.min(number, wallet.balance().cashWon()));
+                long budget = Math.min(number, wallet.balance().cashWon());
+                // 거래 비용까지 그 금액 안에 들어오게 한다.
+                quantity = pool.maxBuyable(budget * 10_000 / (10_000 + tradeFeeBps));
+                while (quantity > 0 && pool.quoteBuy(quantity) + wallet.feeFor(pool.quoteBuy(quantity)) > budget) quantity--;
                 if (quantity <= 0) throw new IllegalArgumentException("그 금액으로는 1주도 살 수 없습니다.");
             } else {
                 long sellable = wallet.sellable(symbol);
@@ -532,14 +542,15 @@ public class LobbySocket extends TextWebSocketHandler {
             throws IOException {
         var desk = lobby.desks.get(player);
         var pool = lobby.market.pool(symbol);
-        long amount;
+        PlayerWallet.Fill fill;
         long spotBefore = lobby.market.spotPrice(symbol);
         try {
-            amount = buying ? desk.wallet().buy(symbol, pool, quantity)
-                            : desk.wallet().sell(symbol, pool, quantity);
+            fill = buying ? desk.wallet().buy(symbol, pool, quantity)
+                          : desk.wallet().sell(symbol, pool, quantity);
         } catch (ArithmeticException e) {
             throw new IllegalArgumentException("처리할 수 있는 주문 범위를 초과했습니다.");
         }
+        long amount = fill.netWon(buying);
         lobby.market.recordTrade(symbol, spotBefore, quantity);
         String side = (limit ? "지정가 " : "") + (buying ? "매수" : "매도");
         lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS,
@@ -548,7 +559,7 @@ public class LobbySocket extends TextWebSocketHandler {
         if (client != null) {
             sendDesk(client, desk);
             send(client, Map.of("type", "fill", "symbol", symbol, "quantity", quantity,
-                    "side", side, "amount", amount, "limit", limit));
+                    "side", side, "amount", amount, "feeWon", fill.feeWon(), "limit", limit));
             sendMyTrades(client, lobby, player);
         }
         return amount;
@@ -590,7 +601,9 @@ public class LobbySocket extends TextWebSocketHandler {
         long reserved = 0;
         try {
             if (buying) {
-                reserved = Math.multiplyExact(price, quantity);
+                // 거래 비용까지 묶어 두어야 체결 때 모자라지 않는다.
+                long gross = Math.multiplyExact(price, quantity);
+                reserved = gross + desk.wallet().feeFor(gross);
                 desk.wallet().reserveCash(reserved);
             } else {
                 Math.multiplyExact(price, quantity); // 체결 확인 때 가격×수량을 계산하므로 미리 범위를 본다
@@ -861,7 +874,8 @@ public class LobbySocket extends TextWebSocketHandler {
             sendChatHistory(session, lobby, player);
             if (!lobby.started()) return;
             sendChart(session, lobby);
-            send(session, Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon)));
+            send(session, Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon),
+                    "feeBps", tradeFeeBps));
             sendDesk(session, lobby.desks.get(player));
             sendMyTrades(session, lobby, player);
             sendOrders(lobby, player);

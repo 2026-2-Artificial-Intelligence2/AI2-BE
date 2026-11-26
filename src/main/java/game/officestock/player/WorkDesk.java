@@ -17,11 +17,11 @@ public final class WorkDesk {
     private int wrongAnswers;
     private final List<TaskTiming> timings = new ArrayList<>();
 
-    public WorkDesk(long startingCashWon, long rewardWon, long nowNanos) {
+    public WorkDesk(long startingCashWon, long rewardWon, int feeBps, long nowNanos) {
         if (rewardWon <= 0) {
             throw new IllegalArgumentException("업무 수당은 양수여야 합니다.");
         }
-        this.wallet = new PlayerWallet(startingCashWon);
+        this.wallet = new PlayerWallet(startingCashWon, feeBps);
         this.rewardWon = rewardWon;
         this.current = nextTask(1);
         this.taskStartedNanos = nowNanos;

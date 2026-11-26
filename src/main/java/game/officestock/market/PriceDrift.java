@@ -14,6 +14,8 @@ final class PriceDrift {
     private static final double IMPULSE_DECAY = perTick(0.866);
     /** 플레이어 매매 흔적이 남는 비율(2초에 85%, 약 8초에 절반). */
     private static final double FLOW_DECAY = perTick(0.922);
+    /** 플레이어 매매 충격 중 적정가에 영구히 남는 몫. 나머지는 매매 흔적(flow)으로 서서히 되돌아간다. */
+    static final double PERMANENT_IMPACT = 0.7;
     /** 찌라시가 진짜 뉴스 전까지 미리 반영하는 몫. */
     private static final double RUMOR_SHARE = 0.4;
 
@@ -85,7 +87,12 @@ final class PriceDrift {
 
     /** 플레이어 주문이 풀 가격을 before에서 after로 옮겼다. 목표가도 그만큼 따라가 흔적이 잠시 남는다. */
     void onTrade(long beforeWon, long afterWon) {
-        if (beforeWon > 0 && afterWon > 0) flow += Math.log((double) afterWon / beforeWon);
+        if (beforeWon <= 0 || afterWon <= 0) return;
+        double move = Math.log((double) afterWon / beforeWon);
+        // 충격의 대부분은 적정가에 그대로 남고(시장이 그 매매를 정보로 받아들인 것으로 본다), 일부만 되돌아간다.
+        // 전부 되돌아가면 "남이 띄운 걸 팔기", "남이 던진 걸 사기"가 거의 확실한 이득이 된다.
+        fairWon = Math.clamp(fairWon * Math.exp(move * PERMANENT_IMPACT), minFair, maxFair);
+        flow += move * (1 - PERMANENT_IMPACT);
     }
 
     enum Reaction { DIRECT, OVERSHOOT, PRICED_IN }
