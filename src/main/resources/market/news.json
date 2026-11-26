@@ -481,7 +481,7 @@
       "body": "회원 수백만 명의 주소와 전화번호가 유출됐다. 과징금과 소송이 이어질 전망이다."
     },
     {
-      "effects": {"MINT": -3, "MOON": -8, "OURS": -4},
+      "effects": {"MINT": -3, "MOON": -8, "OURS": -4, "CPBANK": 3, "BMSEC": -4, "NVCON": -5},
       "headline": "한국은행 기준금리 인상",
       "body": "한국은행이 예상보다 빨리 기준금리를 올렸다. 빌린 돈으로 공장을 늘려 온 기술 기업일수록 부담이 크다는 분석이다."
     },
@@ -491,7 +491,7 @@
       "body": "정부가 중소 물류창고의 자동화 장비 구입 지원금을 두 배로 늘린다. 로봇 업체는 물론 창고 관리 시스템을 납품하는 회사들도 수혜가 예상된다."
     },
     {
-      "effects": {"MINT": 7, "MOON": -5},
+      "effects": {"MINT": 7, "MOON": -5, "SKFOOD": -3},
       "headline": "기록적 폭염 경보, 일주일 넘게 이어질 듯",
       "body": "전국에 폭염 경보가 내려졌다. 시원한 맛을 내세운 식품은 불티나게 팔리지만, 야외에서 일하는 로봇은 과열로 멈추는 일이 잦아질 수 있다."
     },
@@ -501,67 +501,67 @@
       "body": "대형 유통사가 내년까지 무인 편의점 500곳을 열겠다고 발표했다. 매장 관리 시스템 입찰에서는 우리회사가 빠졌다는 소식도 함께 전해졌다."
     },
     {
-      "effects": {"SKY": -13, "PHARM": 9, "DLVR": 10, "MINT": 4, "OURS": -2},
+      "effects": {"SKY": -13, "PHARM": 9, "DLVR": 10, "MINT": 4, "OURS": -2, "LGAIR": -12, "NSBIO": 8, "SKFOOD": 5, "SSGENT": -6, "HWBEAUTY": -4, "PSGAME": 6, "NXENERGY": -6},
       "headline": "신종 호흡기 감염병 확산, 각국 입국 제한",
       "body": "해외에서 시작된 감염병이 빠르게 퍼지며 여러 나라가 입국을 막았다. 하늘길이 막히는 대신 집에서 보내는 시간이 늘 것이라는 전망이다."
     },
     {
-      "effects": {"SKY": 13, "PHARM": -6, "DLVR": -6},
+      "effects": {"SKY": 13, "PHARM": -6, "DLVR": -6, "LGAIR": 12, "SSGENT": 6, "PSGAME": -4, "SKFOOD": -3},
       "headline": "감염병 백신 개발 성공 발표",
       "body": "국제 연구진이 감염병 백신의 높은 예방 효과를 발표했다. 여행 재개 기대감에 항공업계가 들썩이는 반면, 치료제 수요는 줄어들 전망이다."
     },
     {
-      "effects": {"SKY": -8, "DLVR": 8, "MINT": 3, "BANK": -2},
+      "effects": {"SKY": -8, "DLVR": 8, "MINT": 3, "BANK": -2, "LGAIR": -7, "SKFOOD": 6, "PSGAME": 5, "SSGENT": -5, "NXENERGY": -4},
       "headline": "사회적 거리두기 최고 단계로 상향",
       "body": "정부가 모임 인원을 크게 제한하는 최고 단계 거리두기를 발표했다. 외식 대신 배달 주문이 늘 전망이다."
     },
     {
-      "effects": {"SKY": 10, "DLVR": -7, "MINT": 2},
+      "effects": {"SKY": 10, "DLVR": -7, "MINT": 2, "LGAIR": 9, "SSGENT": 6, "HWBEAUTY": 4, "PSGAME": -4, "SKFOOD": -4},
       "headline": "거리두기 전면 해제, 일상 회복 선언",
       "body": "2년 넘게 이어진 거리두기가 모두 풀린다. 여행과 외식 수요가 폭발할 것이라는 기대가 나온다."
     },
     {
-      "effects": {"CHIP": -6, "MOON": -7, "BANK": 6, "PHARM": -5, "OURS": -3},
+      "effects": {"CHIP": -6, "MOON": -7, "BANK": 6, "PHARM": -5, "OURS": -3, "BGBATT": -7, "LTCHIP": -6, "BMSEC": -5, "CPBANK": 3, "NSBIO": -6, "KKSHIP": -5, "CJSPACE": -5, "PSGAME": -4, "AMHEAVY": -4},
       "headline": "미국 중앙은행 기준금리 0.75%p 인상",
       "body": "물가를 잡기 위해 미국이 한 번에 큰 폭으로 금리를 올렸다. 빚을 내 성장하는 기술주에 부담이 크다는 분석이다."
     },
     {
-      "effects": {"BANK": -3, "MOON": 5, "PHARM": 4, "DLVR": 3},
+      "effects": {"BANK": -3, "MOON": 5, "PHARM": 4, "DLVR": 3, "NVCON": 6, "BMSEC": 5, "CPBANK": -2, "BGBATT": 5, "OTGEV": 4},
       "headline": "한국은행 기준금리 전격 인하",
       "body": "경기 둔화를 막기 위해 기준금리를 내렸다. 이자로 버는 은행은 아쉽지만 성장주에는 숨통이 트인다."
     },
     {
-      "effects": {"CHIP": 10, "MOON": -6, "OURS": -2},
+      "effects": {"CHIP": 10, "MOON": -6, "OURS": -2, "SSCAR": -8, "OTGEV": -7, "LTCHIP": 9},
       "headline": "차량용 반도체 공급 대란",
       "body": "반도체가 모자라 완성차 공장이 멈춰 섰다. 반도체 값은 치솟고, 부품이 필요한 제조업체들은 비상이다."
     },
     {
-      "effects": {"SKY": -8, "MINT": -3, "DLVR": -4, "BANK": 1},
+      "effects": {"SKY": -8, "MINT": -3, "DLVR": -4, "BANK": 1, "LGAIR": -8, "NXENERGY": 9, "OTGEV": 5, "BGBATT": 5},
       "headline": "산유국 감산 발표로 국제유가 급등",
       "body": "주요 산유국들이 생산을 줄이기로 하면서 유가가 하루 만에 크게 뛰었다. 연료비 부담이 큰 업종에 비상이 걸렸다."
     },
     {
-      "effects": {"SKY": 8, "DLVR": 3, "MINT": 2},
+      "effects": {"SKY": 8, "DLVR": 3, "MINT": 2, "LGAIR": 7, "NXENERGY": -8, "OTGEV": -3, "SSCAR": 3},
       "headline": "국제유가 급락",
       "body": "수요 둔화 우려로 유가가 크게 떨어졌다. 연료비를 아끼게 된 항공사가 가장 반기는 분위기다."
     },
     {
-      "effects": {"SKY": -6, "CHIP": 5, "MINT": -3, "PHARM": 2},
+      "effects": {"SKY": -6, "CHIP": 5, "MINT": -3, "PHARM": 2, "SSCAR": 4, "HDELEC": 4, "LGAIR": -5, "KKSHIP": 4},
       "headline": "원·달러 환율 급등",
       "body": "환율이 연중 최고치로 치솟았다. 수출 기업은 웃고, 달러로 비용을 내는 기업은 운다."
     },
     {
-      "effects": {"DLVR": -10, "BANK": -3, "OURS": 6},
+      "effects": {"DLVR": -10, "BANK": -3, "OURS": 6, "CPBANK": -6, "BMSEC": -4, "HYTEL": -3},
       "headline": "대형 데이터센터 화재로 메신저·결제 먹통",
       "body": "데이터센터 화재로 메신저와 간편결제가 하루 넘게 멈췄다. 재해 복구 시스템을 갖추려는 기업들의 문의가 IT 업체로 몰린다."
     },
     {
-      "effects": {"BANK": -9, "CHIP": -6, "MOON": -7, "SKY": -5, "MINT": -2},
+      "effects": {"BANK": -9, "CHIP": -6, "MOON": -7, "SKY": -5, "MINT": -2, "BMSEC": -9, "CPBANK": -5, "BGBATT": -6, "NSBIO": -6, "KKSHIP": -6, "NXENERGY": -5, "CJSPACE": -4, "SSGENT": -4, "AMHEAVY": -3},
       "headline": "해외 대형 투자은행 파산설에 금융시장 공포",
       "body": "글로벌 투자은행 한 곳이 파산할 수 있다는 소식에 전 세계 증시가 출렁였다. 금융위기가 다시 오는 것 아니냐는 공포가 번진다."
     },
     {
-      "effects": {"MINT": -4, "MOON": 6, "CHIP": -3},
+      "effects": {"MINT": -4, "MOON": 6, "CHIP": -3, "KKSHIP": 8, "SSCAR": -3},
       "headline": "해운 운임 폭등으로 수출입 비상",
       "body": "컨테이너 운임이 몇 배로 뛰며 물류 대란이 벌어졌다. 물류 자동화에 대한 관심은 오히려 커졌다."
     },
@@ -581,12 +581,12 @@
       "body": "배달 앱이 받을 수 있는 수수료에 상한을 두는 법이 통과됐다. 플랫폼 기업의 수익 구조에 직격탄이다."
     },
     {
-      "effects": {"CHIP": 9, "BANK": 2},
+      "effects": {"CHIP": 9, "BANK": 2, "LTCHIP": 8, "HDELEC": 3},
       "headline": "반도체 수출액 사상 최대 기록",
       "body": "지난달 반도체 수출액이 역대 최고치를 찍었다. 경기 회복 기대도 함께 커졌다."
     },
     {
-      "effects": {"CHIP": 12, "OURS": 5, "MOON": 4},
+      "effects": {"CHIP": 12, "OURS": 5, "MOON": 4, "LTCHIP": 11, "HYTEL": 3, "AMHEAVY": 4},
       "headline": "생성형 AI 열풍, 데이터센터 투자 붐",
       "body": "대화형 인공지능이 폭발적인 인기를 끌며 전 세계 기업들이 데이터센터 투자를 서두르고 있다."
     },
@@ -596,22 +596,22 @@
       "body": "예년보다 일찍 독감이 크게 번지며 병원 대기 줄이 길어졌다."
     },
     {
-      "effects": {"MINT": -4, "DLVR": -5, "BANK": 2},
+      "effects": {"MINT": -4, "DLVR": -5, "BANK": 2, "SKFOOD": -4, "HWBEAUTY": -4},
       "headline": "소비자물가 급등, 지갑 닫는 소비자들",
       "body": "물가가 크게 오르자 사람들이 외식과 간식부터 줄이기 시작했다."
     },
     {
-      "effects": {"MINT": 3, "MOON": 4, "SKY": 3, "DLVR": 3, "BANK": 2, "OURS": 3},
+      "effects": {"MINT": 3, "MOON": 4, "SKY": 3, "DLVR": 3, "BANK": 2, "OURS": 3, "BGBATT": 3, "OTGEV": 3, "CPBANK": 2, "SSCAR": 4, "NVCON": 4},
       "headline": "정부 대규모 경기 부양책 발표",
       "body": "정부가 대규모 재정 지출과 소비 쿠폰 지급을 발표했다. 업종을 가리지 않고 훈풍이 기대된다."
     },
     {
-      "effects": {"CHIP": -8, "MOON": -4, "MINT": -2},
+      "effects": {"CHIP": -8, "MOON": -4, "MINT": -2, "SSCAR": -7, "HDELEC": -5, "LTCHIP": -6, "KKSHIP": -6, "NXENERGY": -4, "PSGAME": -3, "AMHEAVY": -3, "HWBEAUTY": -3},
       "headline": "무역 분쟁 격화로 관세 인상",
       "body": "주요 수출국이 보복 관세를 매기며 무역 분쟁이 커졌다. 수출 비중이 큰 기업일수록 타격이 크다."
     },
     {
-      "effects": {"PHARM": 8},
+      "effects": {"PHARM": 8, "NSBIO": 7},
       "headline": "정부, 바이오 규제 대폭 완화",
       "body": "신약 허가 절차를 크게 줄이는 규제 완화안이 나왔다. 제약·바이오 업계는 환영 일색이다."
     },
@@ -631,32 +631,32 @@
       "body": "로봇으로 일자리를 대체하는 기업에 세금을 매기는 방안이 논의되고 있다."
     },
     {
-      "effects": {"CHIP": -7, "DLVR": -5, "MOON": -3, "BANK": -2},
+      "effects": {"CHIP": -7, "DLVR": -5, "MOON": -3, "BANK": -2, "HYTEL": -4, "LTCHIP": -5, "NXENERGY": 3},
       "headline": "전국 동시 정전 사태",
       "body": "전력 수요가 몰리며 여러 지역에서 동시에 정전이 일어났다. 공장과 서버가 한때 멈췄다."
     },
     {
-      "effects": {"MINT": 6, "DLVR": 4, "SKY": 3},
+      "effects": {"MINT": 6, "DLVR": 4, "SKY": 3, "SKFOOD": 4, "KTSNACK": 2, "NXENERGY": 3},
       "headline": "기록적 무더위에 여름 특수",
       "body": "연일 폭염이 이어지며 시원한 먹거리와 배달 주문, 여름휴가 수요가 함께 늘었다."
     },
     {
-      "effects": {"BANK": -6},
+      "effects": {"BANK": -6, "NVCON": -9, "CPBANK": -3, "BMSEC": -3},
       "headline": "집값 급락, 부동산 대출 부실 우려",
       "body": "주요 도시 집값이 빠르게 떨어지며 담보 가치가 줄어든 대출이 늘고 있다."
     },
     {
-      "effects": {"BANK": 3, "CHIP": 4, "MOON": 4, "SKY": 3, "PHARM": 2},
+      "effects": {"BANK": 3, "CHIP": 4, "MOON": 4, "SKY": 3, "PHARM": 2, "BMSEC": 8, "BGBATT": 4, "OTGEV": 3},
       "headline": "주식 양도세 완화 발표, 증시 훈풍",
       "body": "주식으로 번 돈에 매기는 세금을 줄이겠다는 발표에 투자 심리가 살아났다."
     },
     {
-      "effects": {"CHIP": -6, "BANK": -3, "MOON": -4},
+      "effects": {"CHIP": -6, "BANK": -3, "MOON": -4, "LTCHIP": -6, "BGBATT": -5, "SSCAR": -3, "KKSHIP": -4, "NXENERGY": -3, "CJSPACE": -3, "SSGENT": -3, "PSGAME": -3},
       "headline": "외국인 투자자 사흘째 대규모 순매도",
       "body": "외국인 투자자들이 대형주를 중심으로 주식을 대거 팔아 치우고 있다."
     },
     {
-      "effects": {"PHARM": 7, "MOON": 2},
+      "effects": {"PHARM": 7, "MOON": 2, "NSBIO": 9},
       "headline": "국제 학회서 '꿈의 신약' 기술 공개, 바이오 과열",
       "body": "국내 연구진이 국제 학회에서 발표한 신약 기술이 화제가 되며 바이오 테마에 돈이 몰린다."
     },
@@ -666,7 +666,7 @@
       "body": "공공 전산 사업에 대기업도 다시 참여할 수 있게 된다. 중견 IT 업체의 수주 경쟁이 훨씬 어려워진다."
     },
     {
-      "effects": {"MINT": 5, "DLVR": 4},
+      "effects": {"MINT": 5, "DLVR": 4, "KTSNACK": 4},
       "headline": "명절 연휴 앞두고 선물 세트 판매 급증",
       "body": "명절을 앞두고 식품 선물 세트와 배송 주문이 크게 늘었다."
     },
@@ -681,34 +681,874 @@
       "body": "도심에서 드론과 로봇으로 물건을 배달하는 것이 법으로 허용된다."
     },
     {
-      "effects": {"PHARM": -10},
+      "effects": {"PHARM": -10, "NSBIO": -7},
       "headline": "제약업계 불법 리베이트 일제 조사",
       "body": "검찰이 제약사들의 병원 리베이트 관행을 일제히 조사하기로 했다. 영업 활동이 한동안 위축될 전망이다."
     },
     {
-      "effects": {"PHARM": -6, "BANK": -1},
+      "effects": {"PHARM": -6, "BANK": -1, "NSBIO": -4},
       "headline": "의료계 갈등 장기화로 병원 진료 차질",
       "body": "정부와 의료계의 갈등이 길어지며 대형 병원 진료가 크게 줄었다. 처방 감소로 제약사 매출에도 그림자가 드리운다."
     },
     {
-      "effects": {"BANK": 6, "MOON": -4, "CHIP": -3},
+      "effects": {"BANK": 6, "MOON": -4, "CHIP": -3, "NVCON": -5, "BGBATT": -4, "KKSHIP": -3, "CPBANK": 3},
       "headline": "고금리 장기화 전망 확산",
       "body": "물가가 좀처럼 잡히지 않아 높은 금리가 오래갈 것이라는 전망이 힘을 얻는다. 이자로 버는 은행은 웃는다."
     },
     {
-      "effects": {"BANK": 5},
+      "effects": {"BANK": 5, "CPBANK": 4},
       "headline": "은행권 예대마진 확대",
       "body": "대출 금리는 그대로인데 예금 금리가 내려가며 은행이 남기는 이자 차익이 커졌다."
     },
     {
-      "effects": {"SKY": 8},
+      "effects": {"SKY": 8, "LGAIR": 7, "HWBEAUTY": 5},
       "headline": "무비자 입국 허용 국가 대폭 확대",
       "body": "정부가 관광객 무비자 입국 대상 국가를 크게 늘린다. 인바운드 여행 수요 증가가 기대된다."
     },
     {
-      "effects": {"SKY": 5, "DLVR": 2},
+      "effects": {"SKY": 5, "DLVR": 2, "LGAIR": 4},
       "headline": "여행 플랫폼 연말 할인 대전",
       "body": "온라인 여행 플랫폼들이 연말 항공권 할인 행사를 동시에 열며 예약이 몰리고 있다."
+    },
+    {
+      "stock": "SSCAR",
+      "changePercent": 9,
+      "headline": "신형 SUV 사전 계약 10만 대 돌파",
+      "body": "출시 전 계약만으로 연간 목표의 절반을 채웠다."
+    },
+    {
+      "stock": "SSCAR",
+      "changePercent": 6,
+      "headline": "북미 공장 증설 확정",
+      "body": "현지 생산으로 관세 부담을 크게 덜 전망이다."
+    },
+    {
+      "stock": "SSCAR",
+      "changePercent": 4,
+      "headline": "자율주행 3단계 정식 인증",
+      "body": "고속도로에서 운전대를 놓을 수 있는 기능이 승인됐다."
+    },
+    {
+      "stock": "SSCAR",
+      "changePercent": -8,
+      "headline": "엔진 결함으로 30만 대 리콜",
+      "body": "주행 중 시동 꺼짐 신고가 잇따라 대규모 리콜에 들어갔다."
+    },
+    {
+      "stock": "SSCAR",
+      "changePercent": -6,
+      "headline": "노조 총파업 돌입",
+      "body": "임금 협상이 결렬돼 전 공장 생산 라인이 멈췄다."
+    },
+    {
+      "stock": "SSCAR",
+      "changePercent": -5,
+      "headline": "중국 시장 점유율 반토막",
+      "body": "현지 업체의 저가 공세에 판매가 급감했다."
+    },
+    {
+      "stock": "HDELEC",
+      "changePercent": 8,
+      "headline": "폴더블폰 출시 첫날 완판",
+      "body": "온라인 사전 판매 물량이 한 시간 만에 동났다."
+    },
+    {
+      "stock": "HDELEC",
+      "changePercent": 5,
+      "headline": "가전 사업부 사상 최대 실적",
+      "body": "프리미엄 냉장고와 세탁기가 해외에서 불티나게 팔렸다."
+    },
+    {
+      "stock": "HDELEC",
+      "changePercent": 4,
+      "headline": "글로벌 빅테크와 디스플레이 공급 계약",
+      "body": "차세대 태블릿에 들어갈 패널을 독점 공급한다."
+    },
+    {
+      "stock": "HDELEC",
+      "changePercent": -8,
+      "headline": "신제품 배터리 발화 신고 잇따라",
+      "body": "충전 중 연기가 났다는 신고에 판매가 일시 중단됐다."
+    },
+    {
+      "stock": "HDELEC",
+      "changePercent": -5,
+      "headline": "TV 사업 적자 전환",
+      "body": "패널 가격 상승을 판매가에 반영하지 못했다."
+    },
+    {
+      "stock": "HDELEC",
+      "changePercent": -4,
+      "headline": "핵심 엔지니어 경쟁사로 대거 이직",
+      "body": "카메라 개발팀 10여 명이 한꺼번에 회사를 떠났다."
+    },
+    {
+      "stock": "LGAIR",
+      "changePercent": 8,
+      "headline": "유럽 신규 노선 운수권 확보",
+      "body": "황금 노선으로 꼽히는 파리 직항 운항권을 따냈다."
+    },
+    {
+      "stock": "LGAIR",
+      "changePercent": 5,
+      "headline": "화물 운송 실적 역대 최대",
+      "body": "반도체·전자상거래 화물 수요가 급증했다."
+    },
+    {
+      "stock": "LGAIR",
+      "changePercent": 4,
+      "headline": "마일리지 제도 개편 호평",
+      "body": "소비자 단체가 업계 모범 사례로 꼽았다."
+    },
+    {
+      "stock": "LGAIR",
+      "changePercent": -8,
+      "headline": "기체 결함으로 회항 잇따라",
+      "body": "일주일 새 세 편이 출발지로 돌아와 안전 우려가 커졌다."
+    },
+    {
+      "stock": "LGAIR",
+      "changePercent": -6,
+      "headline": "객실 승무원 노조 준법 투쟁",
+      "body": "성수기 운항 지연이 불가피하다는 전망이 나온다."
+    },
+    {
+      "stock": "LGAIR",
+      "changePercent": -4,
+      "headline": "항공기 리스료 대폭 인상",
+      "body": "달러 강세로 임차 비용 부담이 커졌다."
+    },
+    {
+      "stock": "SKFOOD",
+      "changePercent": 8,
+      "headline": "신메뉴 '마라 치킨' SNS 대유행",
+      "body": "인증샷 열풍에 가맹점마다 주문이 밀려 있다."
+    },
+    {
+      "stock": "SKFOOD",
+      "changePercent": 5,
+      "headline": "동남아 300개 매장 진출 계약",
+      "body": "현지 대형 유통사와 마스터 프랜차이즈 계약을 맺었다."
+    },
+    {
+      "stock": "SKFOOD",
+      "changePercent": 4,
+      "headline": "배달 앱 주문 순위 1위 탈환",
+      "body": "반값 이벤트가 젊은 층 주문을 끌어모았다."
+    },
+    {
+      "stock": "SKFOOD",
+      "changePercent": -8,
+      "headline": "가맹점 갑질 논란 확산",
+      "body": "본사가 인테리어 비용을 떠넘겼다는 폭로가 나왔다."
+    },
+    {
+      "stock": "SKFOOD",
+      "changePercent": -6,
+      "headline": "치킨값 인상에 불매 운동",
+      "body": "한 마리 3만 원 시대에 소비자들이 등을 돌렸다."
+    },
+    {
+      "stock": "SKFOOD",
+      "changePercent": -4,
+      "headline": "조류 독감으로 닭 공급 차질",
+      "body": "산지 닭값이 한 달 새 40% 뛰었다."
+    },
+    {
+      "stock": "KKSHIP",
+      "changePercent": 10,
+      "headline": "LNG 운반선 12척 수주",
+      "body": "단일 계약으로 회사 역사상 최대 규모다."
+    },
+    {
+      "stock": "KKSHIP",
+      "changePercent": 6,
+      "headline": "친환경 암모니아 추진선 세계 첫 인도",
+      "body": "탄소 규제 강화로 후속 발주가 기대된다."
+    },
+    {
+      "stock": "KKSHIP",
+      "changePercent": 4,
+      "headline": "해군 잠수함 사업 우선협상자 선정",
+      "body": "수조 원 규모 방산 수주 가능성이 열렸다."
+    },
+    {
+      "stock": "KKSHIP",
+      "changePercent": -9,
+      "headline": "건조 중 선박 화재",
+      "body": "인도 지연에 따른 배상금이 발생할 전망이다."
+    },
+    {
+      "stock": "KKSHIP",
+      "changePercent": -6,
+      "headline": "후판 가격 급등으로 적자 전환",
+      "body": "수주 때 계산한 원가를 크게 넘어섰다."
+    },
+    {
+      "stock": "KKSHIP",
+      "changePercent": -5,
+      "headline": "하청 노동자 파업으로 도크 점거",
+      "body": "50일째 선박 진수가 멈춰 있다."
+    },
+    {
+      "stock": "NVCON",
+      "changePercent": 8,
+      "headline": "신도시 대규모 아파트 단지 수주",
+      "body": "1조 원 규모 사업을 단독으로 따냈다."
+    },
+    {
+      "stock": "NVCON",
+      "changePercent": 6,
+      "headline": "중동 스마트시티 건설 참여 확정",
+      "body": "해외 수주 잔고가 두 배로 늘었다."
+    },
+    {
+      "stock": "NVCON",
+      "changePercent": 4,
+      "headline": "모듈러 주택 기술 특허 등록",
+      "body": "공사 기간을 절반으로 줄이는 공법이다."
+    },
+    {
+      "stock": "NVCON",
+      "changePercent": -9,
+      "headline": "시공 중 아파트 주차장 붕괴",
+      "body": "철근 누락 의혹이 제기돼 전 현장 점검에 들어갔다."
+    },
+    {
+      "stock": "NVCON",
+      "changePercent": -6,
+      "headline": "미분양 물량 급증",
+      "body": "지방 단지 분양률이 30%에 그쳤다."
+    },
+    {
+      "stock": "NVCON",
+      "changePercent": -4,
+      "headline": "PF 대출 만기 연장 실패설",
+      "body": "자금 조달 우려에 회사채 금리가 치솟았다."
+    },
+    {
+      "stock": "LTCHIP",
+      "changePercent": 10,
+      "headline": "AI 서버용 고대역폭 메모리 독점 공급",
+      "body": "글로벌 GPU 업체의 차세대 제품에 단독으로 들어간다."
+    },
+    {
+      "stock": "LTCHIP",
+      "changePercent": 6,
+      "headline": "3나노 파운드리 수율 안정화",
+      "body": "고객사 이탈 우려가 해소됐다."
+    },
+    {
+      "stock": "LTCHIP",
+      "changePercent": 4,
+      "headline": "분기 영업이익 시장 예상 상회",
+      "body": "메모리 가격 반등이 실적을 끌어올렸다."
+    },
+    {
+      "stock": "LTCHIP",
+      "changePercent": -9,
+      "headline": "공장 정전으로 웨이퍼 대량 폐기",
+      "body": "복구까지 2주가 걸릴 전망이다."
+    },
+    {
+      "stock": "LTCHIP",
+      "changePercent": -7,
+      "headline": "핵심 기술 해외 유출 수사",
+      "body": "전직 연구원이 설계 자료를 빼돌린 혐의다."
+    },
+    {
+      "stock": "LTCHIP",
+      "changePercent": -5,
+      "headline": "메모리 재고 급증, 가격 하락 전환",
+      "body": "PC·스마트폰 수요 부진이 길어지고 있다."
+    },
+    {
+      "stock": "SSGENT",
+      "changePercent": 12,
+      "headline": "소속 그룹 빌보드 1위 등극",
+      "body": "K팝 그룹으로는 역대 세 번째 기록이다."
+    },
+    {
+      "stock": "SSGENT",
+      "changePercent": 7,
+      "headline": "월드 투어 50회 전석 매진",
+      "body": "티켓 수익만 수천억 원으로 추정된다."
+    },
+    {
+      "stock": "SSGENT",
+      "changePercent": 4,
+      "headline": "글로벌 음원 플랫폼과 지분 제휴",
+      "body": "해외 유통망이 크게 넓어진다."
+    },
+    {
+      "stock": "SSGENT",
+      "changePercent": -11,
+      "headline": "간판 멤버 전속계약 해지 소송",
+      "body": "그룹 활동 중단 가능성이 제기됐다."
+    },
+    {
+      "stock": "SSGENT",
+      "changePercent": -7,
+      "headline": "소속 가수 음주운전 적발",
+      "body": "출연 중이던 광고가 줄줄이 중단됐다."
+    },
+    {
+      "stock": "SSGENT",
+      "changePercent": -5,
+      "headline": "신인 그룹 데뷔 성적 부진",
+      "body": "투자 대비 성과가 기대에 못 미쳤다."
+    },
+    {
+      "stock": "CPBANK",
+      "changePercent": 6,
+      "headline": "새벽배송 고객 전용 적금 흥행",
+      "body": "출시 일주일 만에 가입자 100만 명을 넘었다."
+    },
+    {
+      "stock": "CPBANK",
+      "changePercent": 4,
+      "headline": "중금리 대출 연체율 업계 최저",
+      "body": "자체 신용평가 모델이 효과를 봤다."
+    },
+    {
+      "stock": "CPBANK",
+      "changePercent": 3,
+      "headline": "분기 첫 흑자 전환",
+      "body": "출범 3년 만에 이익을 냈다."
+    },
+    {
+      "stock": "CPBANK",
+      "changePercent": -6,
+      "headline": "앱 장애로 이체 6시간 먹통",
+      "body": "금융당국이 경위 조사에 나섰다."
+    },
+    {
+      "stock": "CPBANK",
+      "changePercent": -4,
+      "headline": "금융당국, 인터넷은행 대출 규제 강화",
+      "body": "가계대출 증가 속도를 늦추라는 지침이 내려졌다."
+    },
+    {
+      "stock": "CPBANK",
+      "changePercent": -3,
+      "headline": "예금 금리 경쟁에 수익성 악화",
+      "body": "시중은행보다 높은 금리를 유지하느라 마진이 줄었다."
+    },
+    {
+      "stock": "BMSEC",
+      "changePercent": 9,
+      "headline": "주식 거래 수수료 평생 무료 선언",
+      "body": "신규 계좌가 하루 20만 개씩 개설되고 있다."
+    },
+    {
+      "stock": "BMSEC",
+      "changePercent": 5,
+      "headline": "해외 주식 소수점 거래 1위",
+      "body": "젊은 투자자들이 몰려들고 있다."
+    },
+    {
+      "stock": "BMSEC",
+      "changePercent": 4,
+      "headline": "IPO 대어 대표 주관사 선정",
+      "body": "수수료 수입만 수백억 원이 예상된다."
+    },
+    {
+      "stock": "BMSEC",
+      "changePercent": -9,
+      "headline": "전산 장애로 매도 주문 체결 지연",
+      "body": "피해 투자자들이 집단 소송을 준비 중이다."
+    },
+    {
+      "stock": "BMSEC",
+      "changePercent": -5,
+      "headline": "부동산 PF 손실 반영",
+      "body": "분기 순이익이 70% 줄었다."
+    },
+    {
+      "stock": "BMSEC",
+      "changePercent": -4,
+      "headline": "증권사 영업정지 3개월 처분",
+      "body": "불완전 판매 혐의가 인정됐다."
+    },
+    {
+      "stock": "HWBEAUTY",
+      "changePercent": 8,
+      "headline": "선크림 미국 아마존 판매 1위",
+      "body": "현지 뷰티 인플루언서 리뷰가 입소문을 탔다."
+    },
+    {
+      "stock": "HWBEAUTY",
+      "changePercent": 6,
+      "headline": "중동 왕실 납품 계약",
+      "body": "프리미엄 라인이 고가 시장을 뚫었다."
+    },
+    {
+      "stock": "HWBEAUTY",
+      "changePercent": 4,
+      "headline": "면세점 매출 회복세",
+      "body": "외국인 단체 관광객이 다시 늘고 있다."
+    },
+    {
+      "stock": "HWBEAUTY",
+      "changePercent": -8,
+      "headline": "제품서 유해 성분 검출",
+      "body": "식약처가 판매 중지와 회수를 명령했다."
+    },
+    {
+      "stock": "HWBEAUTY",
+      "changePercent": -5,
+      "headline": "중국 현지 매장 절반 철수",
+      "body": "현지 브랜드에 밀려 적자가 쌓였다."
+    },
+    {
+      "stock": "HWBEAUTY",
+      "changePercent": -4,
+      "headline": "모델 계약 위약금 분쟁",
+      "body": "광고 모델 논란으로 캠페인이 중단됐다."
+    },
+    {
+      "stock": "PSGAME",
+      "changePercent": 11,
+      "headline": "신작 RPG 글로벌 매출 1위",
+      "body": "출시 사흘 만에 개발비를 모두 회수했다."
+    },
+    {
+      "stock": "PSGAME",
+      "changePercent": 6,
+      "headline": "중국 판호 발급",
+      "body": "세계 최대 게임 시장 진출 길이 열렸다."
+    },
+    {
+      "stock": "PSGAME",
+      "changePercent": 4,
+      "headline": "대형 IP 게임화 계약",
+      "body": "인기 웹툰을 원작으로 한 신작을 만든다."
+    },
+    {
+      "stock": "PSGAME",
+      "changePercent": -10,
+      "headline": "확률형 아이템 조작 의혹",
+      "body": "이용자 집단 환불 요구가 거세다."
+    },
+    {
+      "stock": "PSGAME",
+      "changePercent": -6,
+      "headline": "기대작 출시 무기한 연기",
+      "body": "완성도 문제로 개발을 처음부터 다시 한다."
+    },
+    {
+      "stock": "PSGAME",
+      "changePercent": -4,
+      "headline": "서버 폭주로 출시 첫날 접속 대란",
+      "body": "보상 비용이 수십억 원에 이를 전망이다."
+    },
+    {
+      "stock": "CJSPACE",
+      "changePercent": 12,
+      "headline": "자체 발사체 궤도 진입 성공",
+      "body": "민간 기업으로는 국내 최초다."
+    },
+    {
+      "stock": "CJSPACE",
+      "changePercent": 7,
+      "headline": "정부 정찰위성 사업 수주",
+      "body": "5년간 안정적인 매출이 확보됐다."
+    },
+    {
+      "stock": "CJSPACE",
+      "changePercent": 4,
+      "headline": "글로벌 위성통신 기업과 협력",
+      "body": "저궤도 위성 부품을 공급한다."
+    },
+    {
+      "stock": "CJSPACE",
+      "changePercent": -11,
+      "headline": "발사체 공중 폭발",
+      "body": "발사 40초 만에 신호가 끊겼다."
+    },
+    {
+      "stock": "CJSPACE",
+      "changePercent": -6,
+      "headline": "우주항공청 예산 삭감",
+      "body": "핵심 연구개발 사업이 1년 미뤄졌다."
+    },
+    {
+      "stock": "CJSPACE",
+      "changePercent": -5,
+      "headline": "유상증자 발표에 주주 반발",
+      "body": "개발비 마련을 위해 지분 20%를 새로 찍는다."
+    },
+    {
+      "stock": "NSBIO",
+      "changePercent": 12,
+      "headline": "비만 치료제 임상 2상 성공",
+      "body": "체중 감소 효과가 경쟁 약보다 컸다."
+    },
+    {
+      "stock": "NSBIO",
+      "changePercent": 7,
+      "headline": "글로벌 제약사에 기술 수출",
+      "body": "계약금만 1천억 원이다."
+    },
+    {
+      "stock": "NSBIO",
+      "changePercent": 4,
+      "headline": "라면 수프 원료서 항염 물질 발견",
+      "body": "건강기능식품 개발에 나선다."
+    },
+    {
+      "stock": "NSBIO",
+      "changePercent": -12,
+      "headline": "임상 3상 중단 권고",
+      "body": "독립 위원회가 부작용 우려를 제기했다."
+    },
+    {
+      "stock": "NSBIO",
+      "changePercent": -6,
+      "headline": "연구소장 횡령 혐의 수사",
+      "body": "연구비 수십억 원을 빼돌린 의혹이다."
+    },
+    {
+      "stock": "NSBIO",
+      "changePercent": -5,
+      "headline": "기술 수출 계약 반환",
+      "body": "파트너사가 개발 우선순위를 낮췄다."
+    },
+    {
+      "stock": "OTGEV",
+      "changePercent": 10,
+      "headline": "2천만 원대 전기차 사전 예약 폭주",
+      "body": "서버가 다운될 만큼 주문이 몰렸다."
+    },
+    {
+      "stock": "OTGEV",
+      "changePercent": 6,
+      "headline": "1회 충전 700km 배터리 탑재",
+      "body": "업계 최장 주행 거리다."
+    },
+    {
+      "stock": "OTGEV",
+      "changePercent": 4,
+      "headline": "유럽 친환경차 인증 획득",
+      "body": "보조금 대상에 올라 판매가 쉬워진다."
+    },
+    {
+      "stock": "OTGEV",
+      "changePercent": -10,
+      "headline": "주차 중 차량 화재 잇따라",
+      "body": "원인이 밝혀질 때까지 지하 주차장 출입이 제한된다."
+    },
+    {
+      "stock": "OTGEV",
+      "changePercent": -6,
+      "headline": "출고 대기 1년, 계약 취소 속출",
+      "body": "부품 부족으로 생산이 계획의 절반이다."
+    },
+    {
+      "stock": "OTGEV",
+      "changePercent": -4,
+      "headline": "충전 소프트웨어 결함 리콜",
+      "body": "원격 업데이트로 고칠 수 있지만 신뢰가 흔들렸다."
+    },
+    {
+      "stock": "KTSNACK",
+      "changePercent": 5,
+      "headline": "추억의 과자 재출시 품절 대란",
+      "body": "편의점마다 '1인 2봉' 제한이 걸렸다."
+    },
+    {
+      "stock": "KTSNACK",
+      "changePercent": 3,
+      "headline": "미국 대형 마트 입점",
+      "body": "현지 2천 개 매장에서 판매를 시작한다."
+    },
+    {
+      "stock": "KTSNACK",
+      "changePercent": 3,
+      "headline": "할로윈 한정판 흥행",
+      "body": "한정 물량이 사흘 만에 동났다."
+    },
+    {
+      "stock": "KTSNACK",
+      "changePercent": -5,
+      "headline": "과자 속 이물질 발견 신고",
+      "body": "해당 제품이 전량 회수된다."
+    },
+    {
+      "stock": "KTSNACK",
+      "changePercent": -4,
+      "headline": "설탕·밀가루 값 급등",
+      "body": "제품 가격을 올리지 못해 이익이 줄었다."
+    },
+    {
+      "stock": "KTSNACK",
+      "changePercent": -2,
+      "headline": "질소 과자 논란 재점화",
+      "body": "과대 포장 비판에 판매가 주춤하다."
+    },
+    {
+      "stock": "AMHEAVY",
+      "changePercent": 9,
+      "headline": "유럽 원전 주기기 수주",
+      "body": "수출 원전의 핵심 설비를 맡는다."
+    },
+    {
+      "stock": "AMHEAVY",
+      "changePercent": 6,
+      "headline": "소형모듈원전(SMR) 설계 인가",
+      "body": "차세대 원전 시장 선점 기대가 커졌다."
+    },
+    {
+      "stock": "AMHEAVY",
+      "changePercent": 3,
+      "headline": "가스터빈 국산화 성공",
+      "body": "수입 대체 효과가 연 수천억 원이다."
+    },
+    {
+      "stock": "AMHEAVY",
+      "changePercent": -8,
+      "headline": "원전 수출 계약 무산",
+      "body": "상대국 정권이 바뀌며 사업이 백지화됐다."
+    },
+    {
+      "stock": "AMHEAVY",
+      "changePercent": -5,
+      "headline": "발전 설비 품질 서류 위조 적발",
+      "body": "납품한 부품 전수 조사에 들어갔다."
+    },
+    {
+      "stock": "AMHEAVY",
+      "changePercent": -4,
+      "headline": "풍력 사업 대규모 손상차손",
+      "body": "해상풍력 프로젝트에서 손실이 났다."
+    },
+    {
+      "stock": "NXENERGY",
+      "changePercent": 8,
+      "headline": "정제마진 3년 만에 최고",
+      "body": "휘발유·경유 수출 이익이 크게 늘었다."
+    },
+    {
+      "stock": "NXENERGY",
+      "changePercent": 5,
+      "headline": "수소 충전소 100곳 구축 사업 수주",
+      "body": "정부 친환경 에너지 사업을 따냈다."
+    },
+    {
+      "stock": "NXENERGY",
+      "changePercent": 4,
+      "headline": "중동 국영 석유사와 장기 공급 계약",
+      "body": "원유 조달 비용이 안정된다."
+    },
+    {
+      "stock": "NXENERGY",
+      "changePercent": -8,
+      "headline": "정유 공장 폭발 사고",
+      "body": "가동 중단으로 생산량이 30% 줄었다."
+    },
+    {
+      "stock": "NXENERGY",
+      "changePercent": -5,
+      "headline": "횡재세 도입 논의",
+      "body": "고유가로 번 초과 이익에 세금을 물리자는 법안이 나왔다."
+    },
+    {
+      "stock": "NXENERGY",
+      "changePercent": -4,
+      "headline": "해상 원유 유출 사고",
+      "body": "방제 비용과 과징금이 예상된다."
+    },
+    {
+      "stock": "BGBATT",
+      "changePercent": 11,
+      "headline": "전기차 배터리 30조 원 수주",
+      "body": "글로벌 완성차 업체와 10년 공급 계약을 맺었다."
+    },
+    {
+      "stock": "BGBATT",
+      "changePercent": 6,
+      "headline": "전고체 배터리 시제품 공개",
+      "body": "화재 위험을 크게 줄인 차세대 제품이다."
+    },
+    {
+      "stock": "BGBATT",
+      "changePercent": 4,
+      "headline": "미국 보조금 대상 확정",
+      "body": "현지 공장 생산분이 세액 공제를 받는다."
+    },
+    {
+      "stock": "BGBATT",
+      "changePercent": -11,
+      "headline": "배터리 공장 화재로 생산 중단",
+      "body": "주요 라인이 불에 타 한 달간 멈춘다."
+    },
+    {
+      "stock": "BGBATT",
+      "changePercent": -6,
+      "headline": "리튬 가격 폭락에 재고 손실",
+      "body": "비싸게 사 둔 원료 값이 반토막 났다."
+    },
+    {
+      "stock": "BGBATT",
+      "changePercent": -5,
+      "headline": "공매도 세력 '과대평가' 보고서",
+      "body": "해외 리서치 업체가 목표가를 절반으로 제시했다."
+    },
+    {
+      "stock": "HYTEL",
+      "changePercent": 4,
+      "headline": "배당 50% 확대 발표",
+      "body": "주주 환원 정책을 크게 강화했다."
+    },
+    {
+      "stock": "HYTEL",
+      "changePercent": 3,
+      "headline": "6G 시범 서비스 세계 첫 개통",
+      "body": "기술 선점 효과가 기대된다."
+    },
+    {
+      "stock": "HYTEL",
+      "changePercent": 2,
+      "headline": "알뜰폰 자회사 가입자 급증",
+      "body": "저가 요금제 수요를 흡수했다."
+    },
+    {
+      "stock": "HYTEL",
+      "changePercent": -4,
+      "headline": "정부, 통신비 인하 압박",
+      "body": "5G 요금제 하한을 낮추라는 요구가 나왔다."
+    },
+    {
+      "stock": "HYTEL",
+      "changePercent": -3,
+      "headline": "전국 통신망 3시간 장애",
+      "body": "카드 결제와 배달 주문까지 멈췄다."
+    },
+    {
+      "stock": "HYTEL",
+      "changePercent": -2,
+      "headline": "주파수 경매 비용 부담",
+      "body": "예상보다 높은 낙찰가에 투자 여력이 줄었다."
+    },
+    {
+      "effects": {"HWBEAUTY": -10, "SSGENT": -8, "LGAIR": -5, "KTSNACK": -2},
+      "headline": "이웃 나라, 한국 단체 관광 전면 금지",
+      "body": "외교 갈등에 대한 보복으로 단체 관광 상품 판매를 막았다."
+    },
+    {
+      "effects": {"SSGENT": 9, "HWBEAUTY": 8, "PSGAME": 5, "LGAIR": 3},
+      "headline": "한한령 해제 기대감",
+      "body": "양국 정상회담에서 문화 교류 재개가 논의됐다."
+    },
+    {
+      "effects": {"LTCHIP": -8, "HDELEC": -5, "CHIP": -6},
+      "headline": "일본, 반도체 핵심 소재 수출 규제",
+      "body": "포토레지스트 등 3개 품목 수출 심사를 강화했다."
+    },
+    {
+      "effects": {"LTCHIP": 6, "CHIP": 5, "HDELEC": 3},
+      "headline": "소재 국산화 성공 발표",
+      "body": "규제 품목을 국내 기업이 대체 생산하는 데 성공했다."
+    },
+    {
+      "effects": {"NVCON": -10, "BMSEC": -7, "BANK": -4, "CPBANK": -3},
+      "headline": "레고랜드식 지방채 부도 사태, 단기 자금시장 경색",
+      "body": "지자체 보증 채권이 부도 처리되며 회사채 시장이 얼어붙었다."
+    },
+    {
+      "effects": {"NVCON": 7, "BMSEC": 6, "BANK": 3},
+      "headline": "정부, 50조 원 규모 자금시장 안정 대책",
+      "body": "채권 매입 프로그램으로 유동성을 공급한다."
+    },
+    {
+      "effects": {"BMSEC": 10, "CPBANK": 3, "BGBATT": 4},
+      "headline": "'동학개미' 열풍, 신규 증권 계좌 사상 최대",
+      "body": "개인 투자자가 하루 10조 원어치를 순매수했다."
+    },
+    {
+      "effects": {"KKSHIP": 6, "NXENERGY": 5, "SSCAR": -4, "HDELEC": -3},
+      "headline": "수에즈 운하 대형 선박 좌초, 세계 물류 마비",
+      "body": "일주일째 수백 척이 운하 입구에 묶여 있다."
+    },
+    {
+      "effects": {"AMHEAVY": -11, "NXENERGY": 6, "BGBATT": 3},
+      "headline": "해외 원전 사고로 원전 안전성 논란",
+      "body": "지진 해일로 냉각 장치가 멈추며 방사능이 누출됐다."
+    },
+    {
+      "effects": {"AMHEAVY": 10, "NVCON": 3},
+      "headline": "정부, 원전 수출 10기 목표 발표",
+      "body": "원전 산업 생태계 복원에 20조 원을 투입한다."
+    },
+    {
+      "effects": {"OTGEV": -10, "BGBATT": -8, "SSCAR": 3, "NXENERGY": 3},
+      "headline": "전기차 보조금 전면 폐지",
+      "body": "재정 부담을 이유로 내년부터 구매 보조금을 없앤다."
+    },
+    {
+      "effects": {"BGBATT": 12, "OTGEV": 6, "BMSEC": 4},
+      "headline": "이차전지 투자 광풍, 개인 매수 쏠림",
+      "body": "관련 종목에 하루 거래대금이 몰리며 과열 경고가 나왔다."
+    },
+    {
+      "effects": {"OTGEV": -9, "BGBATT": -7, "NVCON": -2},
+      "headline": "아파트 지하 주차장 전기차 화재로 수백 대 전소",
+      "body": "전기차 지하 주차 금지 여론이 들끓고 있다."
+    },
+    {
+      "effects": {"CJSPACE": 10, "AMHEAVY": 3, "HYTEL": 2},
+      "headline": "한국형 발사체 실용 위성 궤도 안착",
+      "body": "국산 발사체가 실용 위성을 성공적으로 쏘아 올렸다."
+    },
+    {
+      "effects": {"PSGAME": 10, "SSGENT": 2},
+      "headline": "중국, 한국 게임 판호 대거 발급",
+      "body": "수년 만에 수십 종의 한국 게임이 허가를 받았다."
+    },
+    {
+      "effects": {"PSGAME": -7},
+      "headline": "확률형 아이템 정보 공개 의무화",
+      "body": "아이템 뽑기 확률을 숨기면 과징금을 문다."
+    },
+    {
+      "effects": {"SKFOOD": 9, "KTSNACK": 3, "DLVR": 4, "HYTEL": 2},
+      "headline": "월드컵 16강 진출, 거리 응원 인파",
+      "body": "경기 날마다 치킨 주문이 평소의 세 배로 늘었다."
+    },
+    {
+      "effects": {"KTSNACK": -5, "SKFOOD": -6, "MINT": -4, "NXENERGY": 5},
+      "headline": "곡물 수출국 전쟁으로 국제 곡물가 폭등",
+      "body": "밀과 옥수수 가격이 한 달 새 50% 올랐다."
+    },
+    {
+      "effects": {"SSGENT": 8, "HWBEAUTY": 5, "SKFOOD": 3, "LGAIR": 3},
+      "headline": "K팝 콘서트 세계 투어 흥행, 한류 열풍",
+      "body": "공연 도시마다 한국 화장품과 음식 매출이 뛰었다."
+    },
+    {
+      "effects": {"HYTEL": -5},
+      "headline": "정부, 가계통신비 인하 대책 발표",
+      "body": "5G 중간 요금제를 의무화한다."
+    },
+    {
+      "effects": {"SSCAR": 6, "OTGEV": 4},
+      "headline": "자동차 개별소비세 인하 연장",
+      "body": "연말까지 차값이 최대 100만 원 싸진다."
+    },
+    {
+      "effects": {"KKSHIP": 9, "AMHEAVY": 3, "NXENERGY": -2},
+      "headline": "글로벌 해운사, 친환경 선박 대량 발주 예고",
+      "body": "탄소 규제에 대비해 100척 넘게 새로 짓는다."
+    },
+    {
+      "effects": {"NVCON": 9, "BANK": 2},
+      "headline": "수도권 신규 택지 50만 호 공급 발표",
+      "body": "3기 신도시급 공급 대책이 나왔다."
+    },
+    {
+      "effects": {"BMSEC": -6, "CPBANK": -4, "HYTEL": -2},
+      "headline": "국내 최대 가상화폐 거래소 해킹",
+      "body": "수천억 원어치 코인이 빠져나가 투자 심리가 얼어붙었다."
     }
   ],
   "rumors": {
