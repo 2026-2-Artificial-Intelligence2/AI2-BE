@@ -24,7 +24,10 @@
   #book tr.ask td.qty { background-repeat: no-repeat; background-position: right; }
   #book tr.bid td.qty { background-repeat: no-repeat; background-position: left; }
   #book tr.now td { border-top: 2px solid #333; border-bottom: 2px solid #333; }
-  #chart { border: 1px solid #ccc; background: #fff; }
+  #chart { border: 1px solid #ccc; background: #fff; cursor: grab; touch-action: none; user-select: none;
+    width: 100%; max-width: 560px; height: auto; display: block; }
+  #detail > div { flex: 1 1 320px; min-width: 0; max-width: 560px; }
+  #chartControls { margin-bottom: .25rem; font-size: .9rem; }
   #quotes tr { cursor: pointer; }
   #quotes tr.selected { background: #fff7d6; }
   #chatLog { max-height: 14rem; overflow-y: auto; padding-left: 1.2rem; }
@@ -101,9 +104,19 @@
         <thead><tr><th>매도 잔량</th><th>가격</th><th>매수 잔량</th></tr></thead>
         <tbody id="bookRows"></tbody>
       </table>
-      <svg id="chart" viewBox="0 0 560 260" width="560" height="260" role="img" aria-label="가격 차트"></svg>
+      <div>
+        <div id="chartControls">
+          <button type="button" id="zoomIn" title="확대">＋</button>
+          <button type="button" id="zoomOut" title="축소">－</button>
+          <button type="button" id="panLeft" title="이전">◀</button>
+          <button type="button" id="panRight" title="다음">▶</button>
+          <button type="button" id="live">실시간</button>
+          <span id="chartRange"></span>
+        </div>
+        <svg id="chart" viewBox="0 0 560 260" role="img" aria-label="가격 차트"></svg>
+      </div>
     </div>
-    <p id="detailNote">호가 잔량은 그 가격까지 움직이려면 사고팔아야 하는 주식 수입니다(이 시장은 걸어 둔 주문 없이 풀 공식으로 움직입니다). 차트는 10초 봉이고, 세로선은 속보(주황)와 찌라시(회색)입니다.</p>
+    <p id="detailNote">호가 잔량은 그 가격까지 움직이려면 사고팔아야 하는 주식 수입니다(이 시장은 걸어 둔 주문 없이 풀 공식으로 움직입니다). 차트는 10초 봉이고, 세로선은 속보(주황), 찌라시(회색), 출근 전 지난 소식(보라)입니다. 휠로 확대·축소, 끌어서 좌우 이동, "실시간"으로 최신 봉을 따라갑니다.</p>
     <form id="order">
       <label>종목 <select id="symbol"></select></label>
       <label>주문 <select id="orderMode">
@@ -671,7 +684,6 @@
   let candleSeconds = 10;
   let newsMarks = new Map();
   let booksNow = {};
-  const CHART_CANDLES = 60;   // 최근 10분
   const SVG = 'http://www.w3.org/2000/svg';
 
   function mergeCandles(latest) {
@@ -734,19 +746,77 @@
     return node;
   }
 
+  // 차트 보기 범위: 보여줄 봉 개수와 오른쪽 끝(봉 번호, null이면 최신 봉을 따라간다).
+  const chartView = {count: 60, end: null};
+  const MIN_VIEW = 12, MAX_VIEW = 540;
+  const timeLabel = second => second < 0 ? '-' + clockText(-second) : clockText(second);
+
+  function viewRange(total) {
+    const count = Math.min(chartView.count, Math.max(total, 1));
+    const end = chartView.end === null ? total : Math.min(Math.max(chartView.end, count), total);
+    return {start: Math.max(0, end - count), end, count};
+  }
+  function zoom(factor) {
+    const total = (candleData[el('symbol').value] ?? []).length;
+    const {end} = viewRange(total);
+    chartView.count = Math.round(Math.min(MAX_VIEW, Math.max(MIN_VIEW, chartView.count * factor)));
+    if (chartView.end !== null) chartView.end = end;
+    renderDetail();
+  }
+  function pan(candles) {
+    const total = (candleData[el('symbol').value] ?? []).length;
+    const {end} = viewRange(total);
+    const next = end + candles;
+    chartView.end = next >= total ? null : Math.max(Math.min(chartView.count, total), next);
+    renderDetail();
+  }
+  el('zoomIn').onclick = () => zoom(0.7);
+  el('zoomOut').onclick = () => zoom(1.4);
+  el('panLeft').onclick = () => pan(-Math.ceil(chartView.count / 3));
+  el('panRight').onclick = () => pan(Math.ceil(chartView.count / 3));
+  el('live').onclick = () => { chartView.end = null; renderDetail(); };
+  el('chart').addEventListener('wheel', event => {
+    event.preventDefault();
+    zoom(event.deltaY < 0 ? 0.85 : 1.18);
+  }, {passive: false});
+  // 끌어서 좌우 이동
+  let drag = null;
+  el('chart').addEventListener('pointerdown', event => {
+    const total = (candleData[el('symbol').value] ?? []).length;
+    drag = {x: event.clientX, end: viewRange(total).end, total};
+    el('chart').setPointerCapture(event.pointerId);
+  });
+  el('chart').addEventListener('pointermove', event => {
+    if (!drag) return;
+    const slotPx = el('chart').getBoundingClientRect().width * (488 / 560) / chartView.count;
+    const shift = Math.round((drag.x - event.clientX) / slotPx);
+    const next = drag.end + shift;
+    chartView.end = next >= drag.total ? null : Math.max(Math.min(chartView.count, drag.total), next);
+    renderDetail();
+  });
+  const endDrag = () => { drag = null; };
+  el('chart').addEventListener('pointerup', endDrag);
+  el('chart').addEventListener('pointercancel', endDrag);
+
   function renderChart(symbol) {
     const svg = el('chart');
     svg.replaceChildren();
     const all = candleData[symbol] ?? [];
-    const list = all.slice(-CHART_CANDLES);
+    const range = viewRange(all.length);
+    const list = all.slice(range.start, range.end);
+    el('chartRange').textContent = list.length
+      ? timeLabel(list[0].startSecond) + ' ~ ' + timeLabel(list.at(-1).startSecond + candleSeconds) +
+        (chartView.end === null ? ' · 실시간' : ' · 지난 구간 보는 중')
+      : '';
+    el('live').disabled = chartView.end === null;
     if (!list.length) return;
     const W = 560, H = 260, left = 8, right = 64, top = 10, priceH = 180, volTop = 200, volH = 44;
     const plotW = W - left - right;
-    const slot = plotW / CHART_CANDLES;
+    const slot = plotW / range.count;
     let lo = Math.min(...list.map(c => c.low)), hi = Math.max(...list.map(c => c.high));
     const pad = Math.max(1, (hi - lo) * 0.08); lo -= pad; hi += pad;
     const y = price => top + (hi - price) / (hi - lo) * priceH;
-    const firstSecond = list[0].startSecond;
+    const firstSecond = list[0].startSecond, lastSecond = list.at(-1).startSecond + candleSeconds;
     const x = second => left + (second - firstSecond) / candleSeconds * slot;
     const maxVol = Math.max(1, ...list.map(c => c.volume));
     // 가격 눈금
@@ -755,24 +825,31 @@
       svg.append(svgEl('line', {x1: left, x2: left + plotW, y1: y(price), y2: y(price), stroke: '#eee'}));
       svg.append(svgEl('text', {x: left + plotW + 4, y: y(price) + 4, 'font-size': 10, fill: '#777'}, Math.round(price).toLocaleString('ko-KR')));
     }
-    // 뉴스 세로선(이 종목 관련 뉴스와 종목 없는 찌라시)
+    // 출근 시각(0초) 표시
+    if (firstSecond <= 0 && lastSecond > 0) {
+      svg.append(svgEl('line', {x1: x(0), x2: x(0), y1: top, y2: volTop + volH, stroke: '#555'}));
+      svg.append(svgEl('text', {x: x(0) + 3, y: top + 10, 'font-size': 10, fill: '#555'}, '출근'));
+    }
+    // 세로선: 속보(주황), 찌라시(회색), 출근 전 지난 소식(보라). 다른 종목 뉴스는 빼고, 종목 없는 익명 찌라시는 넣는다.
+    const colors = {news: '#ef6c00', rumor: '#9e9e9e', past: '#7e57c2'};
+    const labels = {news: '속보 · ', rumor: '찌라시 · ', past: '지난 소식 · '};
     for (const mark of newsMarks.values()) {
-      if (mark.second < firstSecond) continue;
+      if (mark.second < firstSecond || mark.second >= lastSecond) continue;
       if (mark.symbols.length && !mark.symbols.includes(symbol)) continue;
-      const mx = x(mark.second) + slot / 2;
+      const mx = x(mark.second) + (mark.kind === 'past' ? 0 : slot / 2);
       const line = svgEl('line', {x1: mx, x2: mx, y1: top, y2: volTop + volH,
-        stroke: mark.kind === 'news' ? '#ef6c00' : '#9e9e9e', 'stroke-dasharray': '4 3'});
-      line.append(svgEl('title', {}, (mark.kind === 'news' ? '속보 · ' : '찌라시 · ') + mark.headline));
+        stroke: colors[mark.kind] ?? '#9e9e9e', 'stroke-dasharray': '4 3'});
+      line.append(svgEl('title', {}, (labels[mark.kind] ?? '') + mark.headline));
       svg.append(line);
     }
     // 봉과 거래량
     list.forEach(c => {
-      const cx = x(c.startSecond) + slot / 2, w = Math.max(2, slot * 0.6);
+      const cx = x(c.startSecond) + slot / 2, w = Math.max(1, slot * 0.6);
       const up = c.close >= c.open, color = up ? '#c62828' : '#1565c0';
       svg.append(svgEl('line', {x1: cx, x2: cx, y1: y(c.high), y2: y(c.low), stroke: color}));
       const bodyTop = y(Math.max(c.open, c.close)), bodyH = Math.max(1, Math.abs(y(c.open) - y(c.close)));
       const rect = svgEl('rect', {x: cx - w / 2, y: bodyTop, width: w, height: bodyH, fill: color});
-      rect.append(svgEl('title', {}, clockText(c.startSecond) + ' 시가 ' + won(c.open) + ' 고가 ' + won(c.high) +
+      rect.append(svgEl('title', {}, timeLabel(c.startSecond) + ' 시가 ' + won(c.open) + ' 고가 ' + won(c.high) +
         ' 저가 ' + won(c.low) + ' 종가 ' + won(c.close) + ' 거래량 ' + c.volume + '주'));
       svg.append(rect);
       if (c.volume) {
@@ -780,10 +857,12 @@
         svg.append(svgEl('rect', {x: cx - w / 2, y: volTop + volH - vh, width: w, height: vh, fill: color, opacity: 0.5}));
       }
     });
-    // 시간 눈금(1분마다)과 현재가
-    list.forEach(c => {
-      if (c.startSecond % 60 === 0) svg.append(svgEl('text', {x: x(c.startSecond), y: H - 2, 'font-size': 10, fill: '#777'}, clockText(c.startSecond)));
-    });
+    // 시간 눈금: 보이는 범위에 맞춰 1·2·5·10분 간격
+    const span = lastSecond - firstSecond;
+    const step = [60, 120, 300, 600, 1200].find(s => span / s <= 7) ?? 1800;
+    for (let t = Math.ceil(firstSecond / step) * step; t < lastSecond; t += step) {
+      svg.append(svgEl('text', {x: x(t), y: H - 2, 'font-size': 10, fill: '#777'}, timeLabel(t)));
+    }
     const last = list.at(-1).close;
     svg.append(svgEl('line', {x1: left, x2: left + plotW, y1: y(last), y2: y(last), stroke: '#333', 'stroke-dasharray': '2 2'}));
     svg.append(svgEl('rect', {x: left + plotW + 1, y: y(last) - 8, width: right - 2, height: 16, fill: '#333'}));
@@ -837,6 +916,8 @@
     renderOrders([]);
     candleData = {};
     newsMarks = new Map();
+    chartView.count = 60;
+    chartView.end = null;
     booksNow = {};
     el('bookRows').replaceChildren();
     el('chart').replaceChildren();
@@ -920,6 +1001,7 @@
       candleSeconds = message.candleSeconds;
       candleData = message.candles;
       newsMarks = new Map(message.news.map(n => [n.number, n]));
+      message.past.forEach((note, i) => newsMarks.set('past' + i, note));
       renderDetail();
     } else if (message.type === 'chat') {
       appendChat(message.message);

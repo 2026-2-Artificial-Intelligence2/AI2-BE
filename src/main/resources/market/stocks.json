@@ -5,21 +5,36 @@
       "name": "민트식품",
       "startPriceWon": 1000,
       "poolShares": 1000,
-      "volatilityPerSecond": 0.0106
+      "volatilityPerSecond": 0.0106,
+      "story": [
+        {"candles": 60, "changePercent": 6, "volatility": 0.006, "note": "민트초코 라면 출시 소식에 상승"},
+        {"candles": 50, "changePercent": -4, "volatility": 0.006, "note": "호불호 논쟁에 차익 실현"},
+        {"candles": 70, "changePercent": 3, "volatility": 0.005, "note": "편의점 품절 소문에 반등"}
+      ]
     },
     {
       "id": "MOON",
       "name": "달나라로봇",
       "startPriceWon": 1000,
       "poolShares": 1000,
-      "volatilityPerSecond": 0.0177
+      "volatilityPerSecond": 0.0177,
+      "story": [
+        {"candles": 40, "changePercent": 15, "volatility": 0.01, "note": "물류 로봇 수주 기대감 급등"},
+        {"candles": 30, "changePercent": -12, "volatility": 0.012, "note": "시연 사고 루머로 급락"},
+        {"candles": 50, "changePercent": 5, "volatility": 0.009, "note": "저가 매수세 유입"},
+        {"candles": 60, "changePercent": -3, "volatility": 0.007, "note": "관망세"}
+      ]
     },
     {
       "id": "OURS",
       "name": "우리회사",
       "startPriceWon": 1000,
       "poolShares": 1000,
-      "volatilityPerSecond": 0.0057
+      "volatilityPerSecond": 0.0057,
+      "story": [
+        {"candles": 90, "changePercent": 2, "volatility": 0.003, "note": "분기 실적 무난"},
+        {"candles": 90, "changePercent": -1, "volatility": 0.003, "note": "신사옥 이전 비용 우려"}
+      ]
     }
   ]
 }

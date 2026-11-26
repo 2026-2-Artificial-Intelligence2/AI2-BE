@@ -17,6 +17,11 @@ public final class PriceChart {
 
     private final Map<String, List<Candle>> candles = new LinkedHashMap<>();
 
+    /** 출근 전 봉을 채운다. 게임 시작 전, 다른 기록보다 먼저 부른다. */
+    void addHistory(String symbol, List<Candle> history) {
+        candles.computeIfAbsent(symbol, s -> new ArrayList<>()).addAll(history);
+    }
+
     /** 시세나 체결을 반영한다. 같은 봉이면 고가·저가·종가·거래량을 고치고, 새 봉이면 하나를 붙인다. */
     void record(String symbol, long second, long priceWon, long volume) {
         var list = candles.computeIfAbsent(symbol, s -> new ArrayList<>());

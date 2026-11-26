@@ -672,7 +672,8 @@ public class LobbySocket extends TextWebSocketHandler {
                 "candles", lobby.market.chart().all(),
                 "news", lobby.market.history().stream()
                         .map(n -> Map.of("number", n.number(), "second", n.second(), "kind", n.kind(),
-                                "symbols", n.symbols(), "headline", n.headline())).toList()));
+                                "symbols", n.symbols(), "headline", n.headline())).toList(),
+                "past", lobby.market.storyNotes()));
     }
 
     /** 이번 판에서 내가 한 거래. 주문할 때와 재접속할 때 보낸다. */
