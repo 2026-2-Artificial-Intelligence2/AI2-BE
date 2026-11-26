@@ -162,6 +162,10 @@ public class LobbySocket extends TextWebSocketHandler {
         int nextLabel = 1;
         /** 마이크 소리 크기(0~100). 브라우저가 재서 보내고, 연결이 끊기면 지운다. */
         final Map<UUID, Integer> micLevels = new HashMap<>();
+        /** 음성 대화에 참여한 사람과 음소거 여부. 연결이 끊기거나 나가면 빠진다(다시 참여해야 한다). */
+        final Map<UUID, Boolean> voiceMuted = new HashMap<>();
+        /** 사람별 음성 연결 정보 전달 횟수(1초 창). 너무 많이 보내면 막는다. */
+        final Map<UUID, long[]> voiceSignalWindow = new HashMap<>();
         /** 사람별로 소리 크기를 마지막으로 방에 알린 시각(나노초). 너무 잦은 알림을 줄인다. */
         final Map<UUID, Long> micSentAt = new HashMap<>();
         /** 사내 메신저 기록. 방이 유지되는 동안 판이 바뀌어도 남는다(최근 MAX_CHAT_HISTORY개). */
@@ -283,6 +287,10 @@ public class LobbySocket extends TextWebSocketHandler {
                         lobby.nextRound(newMarket(lobby.sessionSeconds, lobby.solo));
                         log.info("방 {} {}번째 판 대기", lobby.code, lobby.round);
                         broadcast(lobby);
+                        return;
+                    }
+                    if (command.startsWith("VOICE ")) {
+                        voiceCommand(lobby, member.player(), command.substring(6));
                         return;
                     }
                     if (command.startsWith("MIC ")) {
@@ -1225,7 +1233,8 @@ public class LobbySocket extends TextWebSocketHandler {
         // 메신저 받는 사람 목록과 화면 표시용. 입장 순서대로.
         var members = state.players().stream().map(id -> Map.of(
                 "label", lobby.labels.get(id), "host", id.equals(state.hostId()),
-                "online", lobby.clients.containsKey(id), "member", lobby.profileIds.containsKey(id))).toList();
+                "online", lobby.clients.containsKey(id), "member", lobby.profileIds.containsKey(id),
+                "voice", lobby.voiceMuted.containsKey(id), "muted", lobby.voiceMuted.getOrDefault(id, false))).toList();
         for (var entry : lobby.clients.entrySet()) {
             send(entry.getValue(), Map.ofEntries(Map.entry("type", "state"), Map.entry("code", lobby.code),
                     Map.entry("you", entry.getKey()), Map.entry("token", lobby.tokens.get(entry.getKey())),
@@ -1254,6 +1263,7 @@ public class LobbySocket extends TextWebSocketHandler {
             if (lobby.clients.get(member.player()) != session) return;
             lobby.clients.remove(member.player());
             clearMic(lobby, member.player());
+            lobby.voiceMuted.remove(member.player());
             long now = System.nanoTime();
             lobby.offlineSince.put(member.player(), now);
             var seat = lobby.patrol.seats.get(member.player());
@@ -1267,6 +1277,69 @@ public class LobbySocket extends TextWebSocketHandler {
         } finally {
             lobby.lock.unlock();
         }
+    }
+
+    /** 음성 연결 정보 한 건의 최대 길이(SDP는 보통 수 KB). */
+    private static final int MAX_VOICE_SIGNAL_CHARS = 16_000;
+    /** 한 사람이 1초에 보낼 수 있는 음성 연결 정보 수. ICE 후보가 몰려도 넉넉한 값이다. */
+    private static final int MAX_VOICE_SIGNALS_PER_SECOND = 60;
+
+    /**
+     * 음성 대화. 음성은 브라우저끼리 WebRTC로 직접 주고받고, 서버는 연결 정보(offer·answer·ICE 후보)만 전달한다.
+     * VOICE JOIN / VOICE LEAVE / VOICE MUTE / VOICE UNMUTE: 참여 상태가 바뀌면 state.members에 반영해 모두에게 알린다.
+     * VOICE SIGNAL 받는사람 {json}: 같은 방에서 음성에 참여한 사람에게 voiceSignal로 그대로 전달한다.
+     * 대기실·게임 중·퇴근 뒤 언제나 쓸 수 있다. 솔로 방에는 없다.
+     */
+    private void voiceCommand(Lobby lobby, UUID player, String rest) throws IOException {
+        if (lobby.solo) throw new IllegalStateException("혼자 하는 방이라 음성 대화가 없습니다.");
+        int space = rest.indexOf(' ');
+        var verb = space < 0 ? rest.strip() : rest.substring(0, space);
+        switch (verb) {
+            case "JOIN" -> {
+                lobby.voiceMuted.put(player, false);
+                broadcast(lobby);
+            }
+            case "LEAVE" -> {
+                if (lobby.voiceMuted.remove(player) != null) broadcast(lobby);
+            }
+            case "MUTE", "UNMUTE" -> {
+                if (!lobby.voiceMuted.containsKey(player)) throw new IllegalStateException("먼저 음성 대화에 참여하세요.");
+                lobby.voiceMuted.put(player, verb.equals("MUTE"));
+                broadcast(lobby);
+            }
+            case "SIGNAL" -> relayVoiceSignal(lobby, player, space < 0 ? "" : rest.substring(space + 1).strip());
+            default -> throw new IllegalArgumentException("VOICE 명령은 JOIN, LEAVE, MUTE, UNMUTE, SIGNAL 중 하나입니다.");
+        }
+    }
+
+    private void relayVoiceSignal(Lobby lobby, UUID player, String rest) throws IOException {
+        if (!lobby.voiceMuted.containsKey(player)) throw new IllegalStateException("먼저 음성 대화에 참여하세요.");
+        int space = rest.indexOf(' ');
+        if (space < 0) throw new IllegalArgumentException("받는 사람과 연결 정보를 함께 보내세요.");
+        var toLabel = rest.substring(0, space);
+        var payload = rest.substring(space + 1);
+        if (payload.length() > MAX_VOICE_SIGNAL_CHARS) throw new IllegalArgumentException("음성 연결 정보가 너무 깁니다.");
+        long now = System.nanoTime();
+        var window = lobby.voiceSignalWindow.computeIfAbsent(player, id -> new long[]{now, 0});
+        if (now - window[0] > 1_000_000_000L) {
+            window[0] = now;
+            window[1] = 0;
+        }
+        if (++window[1] > MAX_VOICE_SIGNALS_PER_SECOND) throw new IllegalStateException("음성 연결 정보를 너무 자주 보냅니다.");
+        UUID to = null;
+        for (var entry : lobby.labels.entrySet()) if (entry.getValue().equals(toLabel)) to = entry.getKey();
+        if (to == null || to.equals(player) || !lobby.voiceMuted.containsKey(to))
+            throw new IllegalArgumentException("음성 대화에 참여한 사람에게만 보낼 수 있습니다: " + toLabel);
+        com.fasterxml.jackson.databind.JsonNode data;
+        try {
+            data = json.readTree(payload);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("음성 연결 정보는 JSON 객체여야 합니다.");
+        }
+        if (data == null || !data.isObject()) throw new IllegalArgumentException("음성 연결 정보는 JSON 객체여야 합니다.");
+        var session = lobby.clients.get(to);
+        if (session != null)
+            send(session, Map.of("type", "voiceSignal", "from", lobby.labels.get(player), "data", data));
     }
 
     /** 마이크 소리 크기 알림 사이의 최소 간격. 크기가 0이 될 때는 바로 알린다. */
@@ -1320,6 +1393,7 @@ public class LobbySocket extends TextWebSocketHandler {
     private void leave(Lobby lobby, UUID player) throws IOException {
         lobby.clients.remove(player);
         clearMic(lobby, player);
+        lobby.voiceMuted.remove(player);
         lobby.tokens.remove(player);
         lobby.offlineSince.remove(player);
         cancelAll(lobby, player);

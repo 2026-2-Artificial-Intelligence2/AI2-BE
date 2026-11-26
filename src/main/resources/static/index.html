@@ -100,6 +100,13 @@
       </select>
     </label>
     <button id="start" hidden>게임 시작</button>
+    <div id="voiceBox">
+      <strong>음성 대화</strong>
+      <button id="voiceJoin">음성 참여</button>
+      <button id="voiceMute" hidden>음소거</button>
+      <span id="voiceStatus"></span>
+      <ul id="voicePeople" style="margin:.25rem 0"></ul>
+    </div>
     <p><button id="micToggle">마이크 켜기</button> <span id="micStatus"></span></p>
     <div id="mics"></div>
     <button id="leave">방 나가기</button>
@@ -506,6 +513,186 @@
     box.replaceChildren(Object.assign(document.createElement('strong'), {textContent: '내 업무 게이지 '}),
       gaugeBar(suspicion, color, '의심 ' + suspicion + '/100'), ' ' + suspicion + (suspicion >= 70 ? ' · 부장님이 눈치챘습니다' : ''));
   }
+
+  // ── 음성 대화 (WebRTC) ─────────────────────────────────
+  // 음성은 브라우저끼리 직접 주고받고(서버를 거치지 않음), 서버는 연결 정보(offer·answer·ICE 후보)만 전달한다.
+  // 두 사람 중 이름이 앞서는 쪽이 연결을 제안(offer)해서 양쪽이 동시에 제안하는 충돌을 피한다.
+  const VOICE_ICE = [{urls: 'stun:stun.l.google.com:19302'}];
+  const voice = {stream: null, joined: false, muted: false, peers: new Map(), members: [], context: null, localLevel: 0};
+  const voiceVolume = new Map();   // 사람별 음량(0~1). 다시 연결돼도 유지한다.
+
+  async function voiceJoin(stream) {
+    if (voice.joined) return;
+    try {
+      voice.stream = stream ?? await navigator.mediaDevices.getUserMedia(
+        {audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+    } catch (e) {
+      el('voiceStatus').textContent = '마이크를 쓸 수 없습니다: ' + e.message + ' (HTTPS 또는 localhost에서만 됩니다)';
+      return;
+    }
+    voice.context = new AudioContext();
+    voice.localAnalyser = analyserFor(voice.stream);
+    voice.joined = true;
+    voice.muted = false;
+    socket.send('VOICE JOIN');
+    renderVoice();
+  }
+
+  function voiceLeave(notify = true) {
+    if (!voice.joined) return;
+    if (notify && socket.readyState === WebSocket.OPEN) socket.send('VOICE LEAVE');
+    for (const label of [...voice.peers.keys()]) closePeer(label);
+    voice.stream?.getTracks().forEach(t => t.stop());
+    voice.context?.close();
+    Object.assign(voice, {stream: null, joined: false, muted: false, context: null, localAnalyser: null});
+    renderVoice();
+  }
+
+  function voiceToggleMute() {
+    if (!voice.joined) return;
+    voice.muted = !voice.muted;
+    voice.stream.getAudioTracks().forEach(t => { t.enabled = !voice.muted; });
+    socket.send(voice.muted ? 'VOICE MUTE' : 'VOICE UNMUTE');
+    renderVoice();
+  }
+
+  // state가 올 때마다: 음성에 참여한 다른 사람과 연결하고, 나간 사람과는 끊는다.
+  function syncVoice(members, solo) {
+    voice.members = members ?? [];
+    el('voiceBox').hidden = !!solo;
+    if (solo) { voiceLeave(); return; }
+    if (voice.joined) {
+      const others = voice.members.filter(m => m.voice && m.online && m.label !== youLabel);
+      for (const label of [...voice.peers.keys()])
+        if (!others.some(m => m.label === label)) closePeer(label);
+      for (const m of others) {
+        if (voice.peers.has(m.label)) continue;
+        const pc = makePeer(m.label);
+        if (youLabel < m.label) sendOffer(m.label, pc);
+      }
+    }
+    renderVoice();
+  }
+
+  function makePeer(label) {
+    const pc = new RTCPeerConnection({iceServers: VOICE_ICE});
+    voice.stream.getTracks().forEach(t => pc.addTrack(t, voice.stream));
+    pc.onicecandidate = e => { if (e.candidate) voiceSignal(label, {candidate: e.candidate}); };
+    pc.ontrack = e => attachRemoteAudio(label, e.streams[0]);
+    pc.onconnectionstatechange = renderVoice;
+    voice.peers.set(label, {pc, audio: null, analyser: null, pending: []});
+    return pc;
+  }
+
+  async function sendOffer(label, pc) {
+    await pc.setLocalDescription(await pc.createOffer());
+    voiceSignal(label, {sdp: pc.localDescription});
+  }
+
+  function voiceSignal(label, data) {
+    if (socket.readyState === WebSocket.OPEN) socket.send('VOICE SIGNAL ' + label + ' ' + JSON.stringify(data));
+  }
+
+  async function onVoiceSignal({from, data}) {
+    if (!voice.joined) return;
+    if (!voice.peers.has(from)) makePeer(from);
+    const peer = voice.peers.get(from), pc = peer.pc;
+    try {
+      if (data.sdp) {
+        await pc.setRemoteDescription(data.sdp);
+        for (const c of peer.pending.splice(0)) await pc.addIceCandidate(c);
+        if (data.sdp.type === 'offer') {
+          await pc.setLocalDescription(await pc.createAnswer());
+          voiceSignal(from, {sdp: pc.localDescription});
+        }
+      } else if (data.candidate) {
+        if (pc.remoteDescription) await pc.addIceCandidate(data.candidate); else peer.pending.push(data.candidate);
+      }
+    } catch (e) {
+      console.warn('음성 연결 정보 처리 실패', from, e);
+    }
+  }
+
+  function closePeer(label) {
+    const peer = voice.peers.get(label);
+    if (!peer) return;
+    peer.pc.close();
+    peer.audio?.remove();
+    voice.peers.delete(label);
+  }
+
+  function analyserFor(stream) {
+    const analyser = voice.context.createAnalyser();
+    analyser.fftSize = 512;
+    voice.context.createMediaStreamSource(stream).connect(analyser);
+    return analyser;
+  }
+
+  function levelOf(analyser) {
+    if (!analyser) return 0;
+    const samples = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (const v of samples) sum += v * v;
+    return Math.sqrt(sum / samples.length);
+  }
+
+  function attachRemoteAudio(label, stream) {
+    const peer = voice.peers.get(label);
+    if (!peer || peer.audio) return;
+    const audio = Object.assign(document.createElement('audio'), {autoplay: true, srcObject: stream});
+    audio.volume = voiceVolume.get(label) ?? 1;
+    document.body.append(audio);
+    peer.audio = audio;
+    peer.analyser = analyserFor(stream);
+    renderVoice();
+  }
+
+  function renderVoice() {
+    el('voiceJoin').textContent = voice.joined ? '음성 나가기' : '음성 참여';
+    el('voiceMute').hidden = !voice.joined;
+    el('voiceMute').textContent = voice.muted ? '음소거 해제' : '음소거';
+    if (voice.joined) el('voiceStatus').textContent = '목소리는 서버를 거치지 않고 참여한 사람끼리 바로 오갑니다.';
+    const list = el('voicePeople');
+    list.replaceChildren();
+    for (const m of voice.members.filter(m => m.voice)) {
+      const li = document.createElement('li');
+      li.dataset.label = m.label;
+      const me = m.label === youLabel;
+      const peer = voice.peers.get(m.label);
+      const state = me ? '' : !voice.joined ? '' : !peer ? ' · 연결 대기' : peer.pc.connectionState === 'connected' ? '' : ' · ' + peer.pc.connectionState;
+      li.append(Object.assign(document.createElement('span'), {className: 'speaking', textContent: '● ', style: 'color:#ccc'}),
+        m.label + (me ? '(나)' : '') + (m.muted ? ' · 음소거' : '') + state);
+      if (!me && voice.joined) {
+        const slider = Object.assign(document.createElement('input'), {type: 'range', min: 0, max: 1, step: 0.05,
+          value: voiceVolume.get(m.label) ?? 1, title: m.label + ' 음량', style: 'width:6rem;margin-left:.5rem'});
+        slider.oninput = () => {
+          voiceVolume.set(m.label, Number(slider.value));
+          const audio = voice.peers.get(m.label)?.audio;
+          if (audio) audio.volume = Number(slider.value);
+        };
+        li.append(slider);
+      }
+      list.append(li);
+    }
+  }
+
+  // 말하는 사람 표시: 0.15초마다 소리 크기를 보고 점을 초록색으로 바꾼다.
+  setInterval(() => {
+    if (!voice.joined) return;
+    for (const li of el('voicePeople').children) {
+      const label = li.dataset.label;
+      const level = label === youLabel ? (voice.muted ? 0 : levelOf(voice.localAnalyser)) : levelOf(voice.peers.get(label)?.analyser);
+      li.querySelector('.speaking').style.color = level > 0.02 ? '#2e7d32' : '#ccc';
+    }
+  }, 150);
+
+  el('voiceJoin').onclick = () => voice.joined ? voiceLeave() : voiceJoin();
+  el('voiceMute').onclick = voiceToggleMute;
+  // 브라우저 콘솔·자동 시험에서 마이크 대신 다른 소리로 참여할 때 쓴다: voiceJoinWith(stream)
+  window.voiceJoinWith = stream => voiceJoin(stream);
+  window.voiceDebug = () => [...voice.peers].map(([label, p]) => ({label, state: p.pc.connectionState,
+    level: Number(levelOf(p.analyser).toFixed(3))}));
 
   // 마이크 소리 크기: 브라우저에서 재서 MIC로 보내고, 방 사람 모두(나 포함)의 크기를 막대로 보여준다.
   const micLevels = new Map();
@@ -1221,6 +1408,7 @@
   }
 
   function backToEntry() {
+    voiceLeave(false);
     phase = 'out';
     el('chatLog').replaceChildren();
     updateMessenger();
@@ -1244,6 +1432,7 @@
       const {room, code, you, token, offline, round, sessionSeconds, members} = message;
       youLabel = message.youLabel;
       renderMembers(members);
+      syncVoice(members, message.solo);
       phase = !room.startedAt ? 'lobby' : phase === 'finished' ? 'finished' : 'playing';
       updateMessenger();
       sessionStorage.setItem(SEAT_KEY, JSON.stringify({code, token}));
@@ -1328,6 +1517,8 @@
       el('status').textContent = message.message;
     } else if (message.type === 'leaderboard') {
       renderFame(message.boards);
+    } else if (message.type === 'voiceSignal') {
+      onVoiceSignal(message);
     } else if (message.type === 'mic') {
       if (message.on) micLevels.set(message.player, message.level); else micLevels.delete(message.player);
       renderMics();

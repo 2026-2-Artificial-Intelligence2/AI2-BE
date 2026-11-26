@@ -84,6 +84,19 @@
 | `CANCEL 7` | 내 지정가 주문을 취소한다. |
 | `LOAN 50000` | 비상 대출(한 판에 한 번, 1원~상한). 훈계 중이 아니면 어느 창에서나 된다. 모두에게 `notice`가 간다. |
 
+### 음성 대화 (방 안 언제나, 솔로 제외)
+
+음성은 브라우저끼리 WebRTC로 직접 주고받는다. 서버는 참여 상태를 `state.members`에 싣고, 연결 정보(offer·answer·ICE 후보)를 받는 사람에게 그대로 전달만 한다. 확인용 화면(index.html)의 `voiceJoin`·`syncVoice`·`onVoiceSignal`이 참고 구현이다.
+
+| 명령 | 설명 |
+|---|---|
+| `VOICE JOIN` | 음성에 참여한다. 모두에게 `state`가 가고 `members[].voice`가 true가 된다. |
+| `VOICE LEAVE` | 음성에서 나간다. 연결이 끊기거나 방을 나가도 저절로 빠진다(재접속 뒤에는 다시 JOIN). |
+| `VOICE MUTE` / `VOICE UNMUTE` | 음소거 상태를 모두에게 알린다(`members[].muted`). 실제로 소리를 끄는 것은 화면이 트랙을 끄는 것이다. |
+| `VOICE SIGNAL 이름 {json}` | 음성에 참여한 같은 방 사람에게 연결 정보를 보낸다. JSON 객체, 16,000자 이내, 1초에 60건까지. 받는 쪽에는 `voiceSignal`이 온다. |
+
+연결 순서(권장): `state`를 받을 때마다 `voice`가 true이고 `online`인 다른 사람과 연결이 없으면 `RTCPeerConnection`을 만든다. 내 이름이 사전순으로 앞서면 offer를 만들어 보내고, 아니면 상대의 offer를 기다린다. offer를 받으면 answer를 보내고, ICE 후보는 오는 대로 서로 보낸다. 목록에서 빠진 사람의 연결은 닫는다.
+
 ### 메신저
 
 | 명령 | 설명 |
@@ -251,6 +264,15 @@
 ```
 
 속보는 `headline`이 "종목 이름 · 제목"(여러 종목 뉴스는 제목만)이고, `body`는 본문이다(없으면 null).
+
+### `voiceSignal` — 음성 연결 정보
+
+```json
+{"type":"voiceSignal","from":"김대리","data":{"sdp":{"type":"offer","sdp":"v=0…"}}}
+{"type":"voiceSignal","from":"김대리","data":{"candidate":{"candidate":"candidate:…","sdpMid":"0","sdpMLineIndex":0}}}
+```
+
+`data`는 보낸 사람이 `VOICE SIGNAL`에 넣은 JSON 그대로다. `state.members[]`에는 `voice`(참여 여부)와 `muted`(음소거)가 들어 있다.
 
 ### `mic` — 소리 크기
 
