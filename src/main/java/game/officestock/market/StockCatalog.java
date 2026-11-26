@@ -1,7 +1,10 @@
 package game.officestock.market;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.random.RandomGenerator;
 import java.util.regex.Pattern;
 
 /**
@@ -100,6 +103,20 @@ public record StockCatalog(List<Stock> stocks) {
 
     public Stock stock(String id) {
         return stocks.stream().filter(s -> s.id().equals(id)).findFirst().orElse(null);
+    }
+
+    /**
+     * 이번 판에 상장할 종목. 일반 종목 가운데 count개를 무작위로 고르고, 기초 종목이 뽑힌 레버리지·인버스 종목을 더한다.
+     * 순서는 stocks.json 순서를 따른다. count가 0 이하이거나 일반 종목 수 이상이면 전부 쓴다.
+     */
+    public StockCatalog pick(int count, RandomGenerator random) {
+        var plain = new ArrayList<>(stocks.stream().filter(s -> !s.derived()).toList());
+        if (count <= 0 || count >= plain.size()) return this;
+        Collections.shuffle(plain, random);
+        var chosen = new HashSet<String>();
+        for (var stock : plain.subList(0, count)) chosen.add(stock.id());
+        return new StockCatalog(stocks.stream()
+                .filter(s -> chosen.contains(s.derived() ? s.underlying() : s.id())).toList());
     }
 
     private static IllegalArgumentException invalid(String message) {

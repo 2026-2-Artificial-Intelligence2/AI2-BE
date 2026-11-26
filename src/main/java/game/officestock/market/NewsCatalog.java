@@ -100,6 +100,24 @@ public record NewsCatalog(List<Card> news, Rumors rumors) {
         return this;
     }
 
+    /**
+     * 이번 판에 상장된 종목만 남긴 뉴스 덱. 여러 종목 뉴스는 상장된 종목의 반응만 남기고,
+     * 상장된 종목을 하나도 움직이지 않는 카드는 뺀다.
+     */
+    public NewsCatalog restrictTo(StockCatalog listed) {
+        var cards = new ArrayList<Card>();
+        for (var card : news) {
+            if (!card.multiStock()) {
+                if (listed.stock(card.stock()) != null) cards.add(card);
+                continue;
+            }
+            var kept = new LinkedHashMap<String, Integer>();
+            card.effects().forEach((id, change) -> { if (listed.stock(id) != null) kept.put(id, change); });
+            if (!kept.isEmpty()) cards.add(new Card(null, null, kept, card.headline(), card.body()));
+        }
+        return new NewsCatalog(cards, rumors).checkAgainst(listed);
+    }
+
     /** 이 종목을 움직이는 카드(여러 종목 뉴스 포함). */
     public List<Card> cardsFor(String stockId) {
         return news.stream().filter(card -> card.moves().containsKey(stockId)).toList();
