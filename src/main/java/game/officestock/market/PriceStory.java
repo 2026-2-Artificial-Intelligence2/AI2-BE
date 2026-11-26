@@ -17,6 +17,42 @@ final class PriceStory {
 
     record Result(List<PriceChart.Candle> candles, List<Note> notes) {}
 
+    /** 기초 종목의 출근 전 봉을 배수로 따라 레버리지 종목의 봉을 만든다. 마지막 종가는 startPriceWon. */
+    static List<PriceChart.Candle> follow(List<PriceChart.Candle> base, double leverage, long startPriceWon,
+                                          RandomGenerator random) {
+        var history = base.stream().filter(c -> c.startSecond() < 0).toList();
+        if (history.isEmpty()) return List.of();
+        double[] close = new double[history.size()];
+        double previousBase = history.getFirst().open(), level = 1;
+        for (int i = 0; i < history.size(); i++) {
+            var c = history.get(i);
+            level *= Math.max(0.05, 1 + leverage * (c.close() / previousBase - 1));
+            previousBase = c.close();
+            close[i] = level;
+        }
+        double scale = startPriceWon / close[close.length - 1];
+        var out = new ArrayList<PriceChart.Candle>();
+        double previous = scale;
+        for (int i = 0; i < history.size(); i++) {
+            var c = history.get(i);
+            double now = close[i] * scale;
+            // 기초 종목 봉의 꼬리 길이를 배수만큼 키워 쓴다(인버스면 위아래를 바꾼다).
+            double up = (double) c.high() / Math.max(c.open(), c.close()) - 1;
+            double down = 1 - (double) c.low() / Math.min(c.open(), c.close());
+            double wickUp = Math.abs(leverage) * (leverage > 0 ? up : down);
+            double wickDown = Math.abs(leverage) * (leverage > 0 ? down : up);
+            long open = Math.max(1, Math.round(previous));
+            long closeWon = i == history.size() - 1 ? startPriceWon : Math.max(1, Math.round(now));
+            long high = Math.round(Math.max(open, closeWon) * (1 + wickUp));
+            long low = Math.max(1, Math.round(Math.min(open, closeWon) * (1 - wickDown)));
+            out.add(new PriceChart.Candle(c.startSecond(), open, Math.max(high, Math.max(open, closeWon)),
+                    Math.min(low, Math.min(open, closeWon)), closeWon,
+                    Math.round(Math.max(0, c.volume() * 0.6 + random.nextGaussian()))));
+            previous = closeWon;
+        }
+        return out;
+    }
+
     static Result generate(StockCatalog.Stock stock, RandomGenerator random) {
         var segments = stock.story();
         int total = segments.stream().mapToInt(StockCatalog.StorySegment::candles).sum();

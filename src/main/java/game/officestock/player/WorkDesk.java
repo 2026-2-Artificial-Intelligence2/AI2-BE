@@ -2,12 +2,16 @@ package game.officestock.player;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 public final class WorkDesk {
     private final PlayerWallet wallet;
     private final long rewardWon;
     private Task current;
+    /** 지금 업무의 정답과 틀렸을 때 안내. 화면에는 보내지 않는다. */
+    private String currentAnswer;
+    private String currentHint;
 
     // 플레이테스트 기록: 업무 1건에 실제로 얼마나 걸리는지 잰다.
     private long taskStartedNanos;
@@ -17,18 +21,22 @@ public final class WorkDesk {
     private int wrongAnswers;
     private final List<TaskTiming> timings = new ArrayList<>();
 
-    public WorkDesk(long startingCashWon, long rewardWon, long nowNanos) {
+    public WorkDesk(long startingCashWon, long rewardWon, int feeBps, long nowNanos) {
         if (rewardWon <= 0) {
             throw new IllegalArgumentException("업무 수당은 양수여야 합니다.");
         }
-        this.wallet = new PlayerWallet(startingCashWon);
+        this.wallet = new PlayerWallet(startingCashWon, feeBps);
         this.rewardWon = rewardWon;
         this.current = nextTask(1);
         this.taskStartedNanos = nowNanos;
         this.lastObservedNanos = nowNanos;
     }
 
-    public record Task(long number, int a1, int a2) {}
+    /**
+     * 업무 한 건. kind는 "sheet"(엑셀 집계), "approval"(전자결재), "mail"(메일 분류)이고,
+     * data에 화면에 그릴 내용이 들어 있다(정답은 없다).
+     */
+    public record Task(long number, String kind, String title, Map<String, Object> data) {}
     public record State(Task task, PlayerWallet.Balance balance, long rewardWon) {}
 
     /**
@@ -56,15 +64,20 @@ public final class WorkDesk {
         lastWorking = working;
     }
 
-    /** @return 새로 완료한 업무의 기록, 이미 처리한 업무 번호면 null */
-    public TaskTiming submit(long number, int answer, long nowNanos) {
+    /**
+     * @param answer 엑셀은 숫자(쉼표 허용), 결재는 APPROVE/REJECT, 메일은 폴더 이름
+     * @return 새로 완료한 업무의 기록, 이미 처리한 업무 번호면 null
+     */
+    public TaskTiming submit(long number, String answer, long nowNanos) {
         if (number < current.number() && number > 0) return null;
         if (number != current.number()) {
             throw new IllegalArgumentException("현재 업무 번호를 확인하세요.");
         }
-        if (answer != current.a1() + current.a2()) {
+        String given = answer == null ? "" : answer.strip();
+        if (current.kind().equals("sheet")) given = given.replace(",", "");
+        if (!given.equals(currentAnswer)) {
             wrongAnswers++;
-            throw new IllegalArgumentException("합계가 맞지 않습니다. 다시 계산해 주세요.");
+            throw new IllegalArgumentException(currentHint);
         }
         wallet.rewardCompletedTask(number, rewardWon);
         observeView(lastWorking, nowNanos);
@@ -78,8 +91,10 @@ public final class WorkDesk {
         return timing;
     }
 
-    private static Task nextTask(long number) {
-        var random = ThreadLocalRandom.current();
-        return new Task(number, random.nextInt(10, 100), random.nextInt(10, 100));
+    private Task nextTask(long number) {
+        var made = TaskFactory.make(ThreadLocalRandom.current());
+        currentAnswer = made.answer();
+        currentHint = made.hint();
+        return new Task(number, made.kind(), made.title(), made.data());
     }
 }

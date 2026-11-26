@@ -46,16 +46,17 @@
 
 | 명령 | 설명 |
 |---|---|
-| `WORK 업무번호 답` | 업무 창에서만 낼 수 있다. 점심시간에는 잠긴다. 정답이면 `work`(다음 업무)가 오고, 이미 낸 번호면 무시된다. |
+| `WORK 업무번호 답` | 업무 창에서만 낼 수 있다. 점심시간에는 잠긴다. 답은 업무 종류에 따라 엑셀은 합계 숫자(쉼표 허용), 결재는 `APPROVE`/`REJECT`, 메일은 폴더 이름(`고객 문의`처럼 띄어쓰기 포함)이다. 정답이면 `work`(다음 업무)가 오고, 틀리면 종류별 안내가 `error`로 온다. 이미 낸 번호면 무시된다. |
 
 ### 주식 (주식 창에서만)
 
 | 명령 | 설명 |
 |---|---|
-| `BUY MOON 10` / `SELL MOON 10` | 수량 시장가 주문. 바로 체결되고 `work`, `fill`, `myTrades`가 온다. |
-| `BUYWON MOON 50000` | 금액 안에서 최대한 산다. |
+| `BUY MOON 10` / `SELL MOON 10` | 수량 시장가 주문. 바로 체결되고 `work`, `fill`, `myTrades`가 온다. 거래 비용(`catalog.feeBps`)이 붙는다. |
+| `BUY MOON 10 x3` | 신용 매수(배수는 `catalog.margin.leverages` 중 하나). 1/배수만 현금으로 내고 나머지는 그 종목의 신용 빚이 된다. |
+| `BUYWON MOON 50000` | 금액(내 돈 기준) 안에서 최대한 산다. 끝에 `x3`을 붙이면 그 금액의 3배어치를 신용으로 산다. |
 | `SELLWON MOON 10000` | 그 금액 이상을 받는 데 필요한 만큼 판다. |
-| `LIMIT BUY MOON 980 30` / `LIMIT SELL MOON 1100 20` | 지정가 주문을 건다(가격, 수량). 결과로 `work`(묶인 현금)와 `orders`가 온다. 조건이 맞으면 언제든(화면과 상관없이) 체결되고, 그때 `fill`(`limit: true`)·`orders`·`work`·`myTrades`가 온다. |
+| `LIMIT BUY MOON 980 30` / `LIMIT SELL MOON 1100 20` | 지정가 주문을 건다(가격, 수량). 개수 제한은 없다(안전장치 100건). 매수는 가격×수량과 거래 비용을 묶는다. 결과로 `work`(묶인 현금)와 `orders`가 온다. 조건이 맞으면 언제든(화면과 상관없이) 체결되고, 그때 `fill`(`limit: true`)·`orders`·`work`·`myTrades`가 온다. |
 | `CANCEL 7` | 내 지정가 주문을 취소한다. |
 | `LOAN 50000` | 비상 대출(한 판에 한 번, 1원~상한). 훈계 중이 아니면 어느 창에서나 된다. 모두에게 `notice`가 간다. |
 
@@ -92,9 +93,18 @@
 게임 시작과 재접속 때 온다.
 
 ```json
-{"type":"catalog","stocks":[{"id":"MINT","name":"민트식품"},{"id":"MOON","name":"달나라로봇"},{"id":"OURS","name":"우리회사"}],
- "loan":{"interestPercent":20,"maxWon":100000}}
+{"type":"catalog",
+ "stocks":[{"id":"MINT","name":"민트식품"},{"id":"MOON","name":"달나라로봇"},{"id":"OURS","name":"우리회사"},
+           {"id":"MOON3X","name":"달나라로봇 3X","underlying":"MOON","leverage":"3.0"},
+           {"id":"OURSINV","name":"우리회사 인버스","underlying":"OURS","leverage":"-1.0"}],
+ "loan":{"interestPercent":20,"maxWon":10000000},
+ "feeBps":20,
+ "margin":{"leverages":[2,3,5],"interestBpsPerMinute":10,"maintenancePercent":10}}
 ```
+
+- `underlying`·`leverage`가 있으면 레버리지·인버스 종목이다(배수는 문자열). 차트에 기초 종목의 뉴스도 표시하면 된다.
+- `feeBps`는 거래 비용(1bp = 0.01%)이다. 매수는 대금 + ⌈대금×feeBps÷10000⌉을 내고, 매도는 대금 − 비용을 받는다.
+- `margin`은 신용 매수 조건이다. 담보 비율이 `maintenancePercent` 아래로 떨어지면 서버가 반대매매한다.
 
 ### `chart` — 차트 전체
 
@@ -138,7 +148,8 @@
 | `books` | 호가(매도 `asks`는 가까운 순, 매수 `bids`도 가까운 순). `shares`는 바로 앞 칸에서 그 가격까지 움직이는 데 필요한 주식 수다. |
 | `candles` | 종목별 진행 중인 봉. `startSecond`가 마지막 봉과 같으면 바꾸고, 다르면 새로 붙인다. |
 | `holdings` | 내 보유 수량(지정가 매도에 묶인 것 포함). |
-| `portfolio` | 보유 종목별 원가·평균 매수가·청산가·손익, 확정 손익. 청산가는 "지금 혼자 전부 팔면 받을 금액"이고, 퇴근 정산도 이 값으로 한다. |
+| `portfolio` | 보유 종목별 원가·평균 매수가·청산가·손익, 신용 빚(`debtWon`)과 담보 비율(`marginRatioPercent`, 빚이 없으면 100), 확정 손익. 청산가는 "지금 혼자 전부 팔면 받을 금액(거래 비용 뺀 뒤)"이고, 퇴근 정산도 이 값으로 한다. |
+| `colleagues` | 동료들의 업무 게이지 `[{"label":"P1","suspicion":45,"meeting":false}, …]`. 내 것은 없다(내 게이지는 남에게만 보인다). |
 | `newsNumber`, `newsKind`, `headline`, `newsBody`, `newsSecond`, `newsSymbols` | 가장 최근의 속보·찌라시. `newsNumber`가 커질 때만 팝업을 띄운다. 재접속 직후에는 띄우지 않는다. |
 | `beat`, `walking`, `step` | 부장님 순찰. 2초 박자(`beat`)마다 바뀌고, `walking`이면 `step.from → step.to`로 걷는 발소리를 낸다. `listener`는 내 자리의 위치와 바라보는 방향(`forwardZ`)이다. 단위는 미터. 같은 `beat`는 한 번만 재생한다. |
 | `coughBeat` | 의심이 70을 넘은 박자. 값이 커지면 부장님 쪽(`step.to`)에서 헛기침 소리를 낸다(나에게만 온다). |
@@ -160,19 +171,31 @@
 ### `work` — 업무와 잔고
 
 ```json
-{"type":"work","desk":{"task":{"number":4,"a1":40,"a2":63},"rewardWon":350,
- "balance":{"cashWon":89456,"workIncomeWon":1050,"completedTasks":3,"loanRepayWon":0,"reservedWon":4750}}}
+{"type":"work","desk":{"rewardWon":35000,
+ "task":{"number":4,"kind":"approval","title":"전자결재 · 국내 출장비",
+         "data":{"docNo":"결재-2923","drafter":"박사원","category":"국내 출장비","item":"제주 박람회 참가",
+                 "rule":"국내 출장비는 하루 30만 원 이하만 승인한다.","amountWon":298000}},
+ "balance":{"cashWon":8945600,"workIncomeWon":105000,"completedTasks":3,"loanRepayWon":0,"reservedWon":475000,"marginDebtWon":844290}}}
 ```
 
-`cashWon`은 지금 쓸 수 있는 현금이다. 지정가 매수에 묶인 돈(`reservedWon`)은 따로 센다. `loanRepayWon`은 퇴근 때 갚을 대출 원리금이다(0이면 대출 안 받음).
+업무 `kind`별 `data`:
+
+| kind | data | 답(`WORK 번호 답`) |
+|---|---|---|
+| `sheet` | `sheet`(시트 이름), `unit`(`천원`), `rows`(`[{"name","amount"}]`), `targetCell`(예: `B7`) | 합계 숫자 |
+| `approval` | `docNo`, `drafter`, `category`, `item`, `rule`(규정 문장), `amountWon`, (식대면) `people` | `APPROVE` 또는 `REJECT` |
+| `mail` | `from`, `subject`, `body`, `folders`(고를 폴더 목록) | 폴더 이름 |
+
+`cashWon`은 지금 쓸 수 있는 현금이다(신용 빚을 다 못 갚으면 음수일 수 있다). 지정가 매수에 묶인 돈(`reservedWon`)은 따로 센다. `loanRepayWon`은 퇴근 때 갚을 대출 원리금, `marginDebtWon`은 신용 빚 합계다. 업무 번호가 바뀔 때만 업무 창을 다시 그리면 된다(매매 때도 잔고 때문에 `work`가 온다).
 
 ### `fill` — 체결
 
 ```json
-{"type":"fill","symbol":"MOON","side":"매수","quantity":10,"amount":10139,"limit":false}
+{"type":"fill","symbol":"MOON","side":"신용 3배 매수","quantity":50,"amount":1266436,"feeWon":2528,
+ "borrowedWon":844290,"debtRepaidWon":0,"limit":false,"forced":false}
 ```
 
-`side`는 `매수`, `매도`, `지정가 매수`, `지정가 매도`이다. `limit: true`면 걸어 둔 주문이 체결된 것이므로 알림을 띄운다.
+`side`는 `매수`, `매도`, `지정가 매수`, `지정가 매도`, `신용 N배 매수`, `반대매매`이다. `amount`는 매수면 낸 돈(대금+비용), 매도면 받은 돈(대금−비용)이다. `borrowedWon`은 신용으로 빌린 돈, `debtRepaidWon`은 매도 대금에서 먼저 갚은 신용 빚이다. `limit: true`면 걸어 둔 지정가가 체결된 것, `forced: true`면 반대매매다. 둘 다 알림을 띄운다.
 
 ### `orders` — 내 지정가 주문 목록
 
@@ -199,7 +222,8 @@
 ### `notice` — 사내 소식
 
 ```json
-{"type":"notice","message":"P2이(가) 비상 대출 10,000원을 받았습니다."}
+{"type":"notice","message":"P2이(가) 비상 대출 10,000,000원을 받았습니다."}
+{"type":"notice","message":"P2의 달나라로봇 신용 포지션이 반대매매됐습니다."}
 ```
 
 ### `chat`, `chatHistory`, `leakSent` — 메신저
@@ -223,7 +247,7 @@
  "leaks":[{"player":"P2","newsNumber":1,"text":"우리회사 회장님 은퇴설"}]}
 ```
 
-순자산 = 현금 + 주식 청산가 − 대출 원리금이다. 같은 금액이면 같은 순위다. 퇴근 뒤 재접속해도 다시 온다.
+순자산 = 현금 + 주식 청산가 − 대출 원리금 − 신용 빚이다. `standings`의 각 줄에는 `marginDebtWon`과 `bankrupt`(순자산 음수면 true)가 더 있다. 같은 금액이면 같은 순위다. 퇴근 뒤 재접속해도 다시 온다.
 
 ### 연결 관련
 

@@ -19,21 +19,75 @@ public final class PlayerWallet {
     private long loanRepayWon;
     /** 걸어 둔 지정가 매수 주문에 묶인 현금(쓸 수 있는 현금 cashWon과 따로 센다). */
     private long reservedWon;
+    /** 종목별 신용 매수 빚(이자가 붙으면 늘어난다). 그 종목을 팔 때 먼저 갚는다. */
+    private final Map<String, Long> marginDebt = new HashMap<>();
     /** 걸어 둔 지정가 매도 주문에 묶인 주식(보유량에는 포함되지만 따로 팔 수 없다). */
     private final Map<String, Long> lockedShares = new HashMap<>();
+
+    /** 거래 비용(사고팔 때 각각, 1bp = 0.01%). 몇 초짜리 단타의 확실한 이득을 깎는다. */
+    private final int feeBps;
 
     public Map<String, Long> holdings() {
         return Map.copyOf(holdings);
     }
 
-    public long buy(String symbol, StockPool pool, long quantity) {
+    /** 체결 결과. grossWon은 풀과 주고받은 금액, feeWon은 거래 비용. */
+    /**
+     * @param debtRepaidWon 매도 대금에서 먼저 갚은 신용 빚(매수면 0)
+     * @param borrowedWon 신용 매수로 빌린 금액(매도면 0)
+     */
+    public record Fill(long grossWon, long feeWon, long debtRepaidWon, long borrowedWon) {
+        /** 매수면 낸 돈(대금+비용), 매도면 받은 돈(대금−비용). */
+        public long netWon(boolean buy) {
+            return buy ? grossWon + feeWon : grossWon - feeWon;
+        }
+    }
+
+    /** 금액에 붙는 거래 비용(원 단위 올림). */
+    public long feeFor(long amountWon) {
+        return (Math.multiplyExact(amountWon, (long) feeBps) + 9_999) / 10_000;
+    }
+
+    public int feeBps() {
+        return feeBps;
+    }
+
+    public Fill buy(String symbol, StockPool pool, long quantity) {
+        return buy(symbol, pool, quantity, 1);
+    }
+
+    /** 신용 매수에 내 돈으로 내야 하는 몫(대금+비용을 배수로 나눠 올림). */
+    public static long ownShare(long totalWon, int leverage) {
+        return (totalWon + leverage - 1) / leverage;
+    }
+
+    /**
+     * 매수. leverage가 2 이상이면 신용 매수다: 대금+비용 중 1/배수만 현금에서 내고 나머지는 이 종목의 신용 빚으로 빌린다.
+     */
+    public Fill buy(String symbol, StockPool pool, long quantity, int leverage) {
         if (quantity <= 0) throw new IllegalArgumentException("수량은 양수여야 합니다.");
+        if (leverage < 1) throw new IllegalArgumentException("배수를 확인하세요.");
         long nextHolding = Math.addExact(holdings.getOrDefault(symbol, 0L), quantity);
-        long cost = pool.buy(quantity, cashWon);
-        cashWon -= cost;
+        long quote = pool.quoteBuy(quantity);
+        if (quote == Long.MAX_VALUE) throw new IllegalArgumentException("매수할 수 없는 수량입니다.");
+        long fee = feeFor(quote);
+        long total = Math.addExact(quote, fee);
+        long own = ownShare(total, leverage);
+        if (own > cashWon) throw new IllegalArgumentException(leverage == 1
+                ? "매수할 현금이 부족합니다(거래 비용 포함)." : "신용 매수에 낼 내 돈(1/" + leverage + ")이 부족합니다.");
+        long cost = pool.buy(quantity, Long.MAX_VALUE);
+        long borrowed = cost + fee - own;
+        cashWon -= own;
+        if (borrowed > 0) marginDebt.merge(symbol, borrowed, Math::addExact);
         holdings.put(symbol, nextHolding);
-        costBasis.merge(symbol, cost, Math::addExact);
-        return cost;
+        costBasis.merge(symbol, cost + fee, Math::addExact);
+        return new Fill(cost, fee, 0, borrowed);
+    }
+
+    /** 이 수량을 지금 혼자 전부 팔면 받을 금액(거래 비용 뺀 뒤). 손익과 퇴근 정산의 기준이다. */
+    public long liquidationValue(StockPool pool, long shares) {
+        long gross = pool.quoteSell(shares);
+        return gross - feeFor(gross);
     }
 
     /** 지정가 매도로 묶이지 않아 지금 팔 수 있는 수량. */
@@ -63,12 +117,20 @@ public final class PlayerWallet {
         lockedShares.merge(symbol, -quantity, Long::sum);
     }
 
-    public long sell(String symbol, StockPool pool, long quantity) {
+    public Fill sell(String symbol, StockPool pool, long quantity) {
         long owned = holdings.getOrDefault(symbol, 0L);
         if (quantity > sellable(symbol))
             throw new IllegalArgumentException("지정가 매도에 묶인 주식은 따로 팔 수 없습니다.");
-        long proceeds = pool.sell(quantity, owned, Long.MAX_VALUE - cashWon);
-        cashWon += proceeds;
+        long gross = pool.sell(quantity, owned, Long.MAX_VALUE - Math.max(0, cashWon));
+        long fee = feeFor(gross);
+        long proceeds = gross - fee;
+        // 신용 빚이 있으면 판 비율만큼 먼저 갚는다(다 팔면 전부). 모자라면 현금에서 마저 갚아 현금이 음수가 될 수 있다(파산).
+        long debt = marginDebt.getOrDefault(symbol, 0L);
+        long repaid = quantity == owned ? debt : Math.round((double) debt * quantity / owned);
+        if (repaid > 0) {
+            if (debt - repaid == 0) marginDebt.remove(symbol); else marginDebt.put(symbol, debt - repaid);
+        }
+        cashWon += proceeds - repaid;
         holdings.put(symbol, owned - quantity);
         long basis = costBasis.getOrDefault(symbol, 0L);
         // 판 주식의 원가 = 보유 원가 × 판 수량 / 보유 수량(반올림). 다 팔면 남은 원가 전부.
@@ -76,14 +138,16 @@ public final class PlayerWallet {
                 : Math.round((double) basis * quantity / owned);
         costBasis.put(symbol, basis - soldCost);
         realizedWon += proceeds - soldCost;
-        return proceeds;
+        return new Fill(gross, fee, repaid, 0);
     }
 
-    public PlayerWallet(long startingCashWon) {
+    public PlayerWallet(long startingCashWon, int feeBps) {
         if (startingCashWon < 0) {
             throw new IllegalArgumentException("시작 자금은 음수일 수 없습니다.");
         }
+        if (feeBps < 0) throw new IllegalArgumentException("거래 비용은 음수일 수 없습니다.");
         cashWon = startingCashWon;
+        this.feeBps = feeBps;
     }
 
     public void rewardCompletedTask(long taskNumber, long rewardWon) {
@@ -115,11 +179,42 @@ public final class PlayerWallet {
     }
 
     /** @param cashWon 지금 쓸 수 있는 현금 @param reservedWon 지정가 매수 주문에 묶인 현금 */
+    /**
+     * @param cashWon 지금 쓸 수 있는 현금(신용 빚을 갚느라 음수일 수 있다)
+     * @param reservedWon 지정가 매수 주문에 묶인 현금
+     * @param marginDebtWon 신용 매수 빚 합계
+     */
     public record Balance(long cashWon, long workIncomeWon, long completedTasks, long loanRepayWon,
-                          long reservedWon) {}
+                          long reservedWon, long marginDebtWon) {}
 
     public Balance balance() {
-        return new Balance(cashWon, workIncomeWon, completedTasks, loanRepayWon, reservedWon);
+        return new Balance(cashWon, workIncomeWon, completedTasks, loanRepayWon, reservedWon, totalMarginDebt());
+    }
+
+    public long marginDebt(String symbol) {
+        return marginDebt.getOrDefault(symbol, 0L);
+    }
+
+    public long totalMarginDebt() {
+        return marginDebt.values().stream().mapToLong(Long::longValue).sum();
+    }
+
+    /** 신용 빚이 있는 종목들. */
+    public java.util.Set<String> marginSymbols() {
+        return java.util.Set.copyOf(marginDebt.keySet());
+    }
+
+    /** 신용 빚에 이자를 붙인다(원 단위 올림). 1분마다 부른다. */
+    public void accrueMarginInterest(int bpsPerMinute) {
+        marginDebt.replaceAll((symbol, debt) -> debt + (Math.multiplyExact(debt, (long) bpsPerMinute) + 9_999) / 10_000);
+    }
+
+    /** 담보 비율(%) = (평가액 − 빚) ÷ 평가액. 평가액은 기준가 × 수량이다. 빚이 없으면 100. */
+    public double marginRatioPercent(String symbol, long spotWon) {
+        long debt = marginDebt(symbol);
+        if (debt == 0) return 100;
+        double value = (double) spotWon * holdings.getOrDefault(symbol, 0L);
+        return value <= 0 ? -100 : (value - debt) * 100 / value;
     }
 
     /**
@@ -128,8 +223,9 @@ public final class PlayerWallet {
      * @param profitWon 청산가 − 원가
      * @param profitPercent 원가 대비 손익률(%), 소수 첫째 자리
      */
+    /** @param debtWon 이 종목의 신용 빚 @param marginRatioPercent 담보 비율(%), 빚이 없으면 100 */
     public record Position(long shares, long costWon, long avgPriceWon, long valueWon,
-                           long profitWon, double profitPercent) {}
+                           long profitWon, double profitPercent, long debtWon, double marginRatioPercent) {}
 
     public record Portfolio(Map<String, Position> positions, long realizedWon) {}
 
@@ -139,9 +235,12 @@ public final class PlayerWallet {
         holdings.forEach((symbol, shares) -> {
             if (shares <= 0) return;
             long cost = costBasis.getOrDefault(symbol, 0L);
-            long value = pools.apply(symbol).quoteSell(shares);
+            long value = liquidationValue(pools.apply(symbol), shares);
             double percent = cost == 0 ? 0 : Math.round((value - cost) * 1000.0 / cost) / 10.0;
-            positions.put(symbol, new Position(shares, cost, cost / shares, value, value - cost, percent));
+            var pool = pools.apply(symbol);
+            long spot = pool.reserves().cashWon() / pool.reserves().shares();
+            positions.put(symbol, new Position(shares, cost, cost / shares, value, value - cost, percent,
+                    marginDebt(symbol), Math.round(marginRatioPercent(symbol, spot) * 10) / 10.0));
         });
         return new Portfolio(positions, realizedWon);
     }

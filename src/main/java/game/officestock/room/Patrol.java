@@ -75,7 +75,9 @@ final class Patrol {
 
     final LinkedHashMap<UUID, Seat> seats = new LinkedHashMap<>();
     private UUID target;
-    private long nextWalk = 7;
+    /** 순찰과 순찰 사이 쉬는 박자(2초 단위). 10~19박자 = 20~38초. 의심 100의 호출은 이 간격을 기다리지 않는다. */
+    static final int PATROL_GAP_MIN_BEATS = 10, PATROL_GAP_MAX_BEATS = 20;
+    private long nextWalk = PATROL_GAP_MIN_BEATS;
     private int waypoint;
     private int previous;
     private int destination;
@@ -193,7 +195,7 @@ final class Patrol {
             meeting(seat, tick, IDLE_MEETING_BEATS, "idle");
         }
         target = null;
-        nextWalk = tick + ThreadLocalRandom.current().nextInt(6, 12);
+        nextWalk = tick + ThreadLocalRandom.current().nextInt(PATROL_GAP_MIN_BEATS, PATROL_GAP_MAX_BEATS);
     }
 
     private static void meeting(Seat seat, long tick, int beats, String reason) {

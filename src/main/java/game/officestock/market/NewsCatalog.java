@@ -88,9 +88,12 @@ public record NewsCatalog(List<Card> news, Rumors rumors) {
             for (var id : card.moves().keySet()) {
                 if (stocks.stock(id) == null)
                     throw invalid("없는 종목 코드의 뉴스입니다: " + id + " · " + card.headline());
+                if (stocks.stock(id).derived())
+                    throw invalid("레버리지 종목(" + id + ")에는 뉴스를 쓰지 않습니다. 기초 종목의 뉴스를 따릅니다: " + card.headline());
             }
         }
         for (var stock : stocks.stocks()) {
+            if (stock.derived()) continue;
             if (cardsFor(stock.id()).isEmpty())
                 throw invalid(stock.id() + "(" + stock.name() + ")의 뉴스가 하나도 없습니다.");
         }
@@ -106,7 +109,7 @@ public record NewsCatalog(List<Card> news, Rumors rumors) {
     public List<String> summary(StockCatalog stocks) {
         var lines = new ArrayList<String>();
         var counts = new LinkedHashMap<String, int[]>();
-        for (var stock : stocks.stocks()) counts.put(stock.id(), new int[4]);
+        for (var stock : stocks.stocks()) if (!stock.derived()) counts.put(stock.id(), new int[4]);
         for (var card : news) {
             card.moves().forEach((id, change) -> {
                 var c = counts.get(id);
