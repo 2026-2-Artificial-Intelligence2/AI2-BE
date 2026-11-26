@@ -12,11 +12,19 @@
 
 ## 실행
 
-JDK 21 이상이 필요하다.
+JDK 21 이상과 Docker가 필요하다. 프로필(이름·꾸미기)과 판 결과는 PostgreSQL에 저장한다. 서버를 띄우기 전에 DB를 한 번 켠다(이 폴더의 `docker-compose.yml`).
+
+```bash
+docker compose up -d
+```
 
 ```bash
 ./gradlew bootRun
 ```
+
+- 표는 서버가 시작할 때 Flyway가 만든다(`src/main/resources/db/migration`). 표를 바꿀 때는 기존 파일을 고치지 말고 `V2__…sql`처럼 새 파일을 더한다.
+- DB를 끄려면 `docker compose stop`, 데이터까지 지우려면 `docker compose down -v`.
+- 다른 DB에 붙일 때는 `DB_URL`, `DB_USER`, `DB_PASSWORD` 환경 변수로 바꾼다(기본값은 compose의 개발용 계정).
 
 브라우저에서 <http://localhost:8080>을 열고, 한 사람이 방을 만들어 초대 코드를 나눠 준다. 혼자 시험할 때는 브라우저 탭을 여러 개 열면 된다. 재접속 열쇠는 탭마다 따로 저장된다.
 
@@ -106,6 +114,7 @@ docker build -t office-stock .
 docker run -p 8080:8080 office-stock
 ```
 
+- PostgreSQL이 따로 필요하다. 클라우드의 관리형 DB(Render PostgreSQL, Neon, Supabase 등)를 만들고 `DB_URL=jdbc:postgresql://호스트:5432/DB이름`, `DB_USER`, `DB_PASSWORD`를 환경 변수로 넣는다.
 - 인스턴스는 **한 개**로 둔다. 여러 개면 친구들이 서로 다른 서버에 붙어 방을 못 찾는다.
 - 무료 요금제 중에는 한동안 접속이 없으면 서버를 재우는 곳이 많다. 서버가 잠들면 방이 사라지므로, 플레이 전에 한 번 접속해 깨워 둔다.
 - 플레이테스트 업무 시간 기록(`playtest/work-times.csv`)은 컨테이너 안에 쌓이므로, 남기려면 볼륨을 붙이거나 서버 로그의 `[업무 시간]` 요약을 확인한다.

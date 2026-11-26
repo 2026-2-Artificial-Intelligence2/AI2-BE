@@ -64,12 +64,24 @@
 </style>
 <main>
   <h1>부장님 몰래</h1>
+  <fieldset id="profileBox">
+    <legend>내 이름</legend>
+    <span id="profileName">이름을 정하면 솔로 게임 기록이 명예의 전당에 남습니다.</span>
+    <label><input id="nameInput" maxlength="10" placeholder="2~10자, 공백 없이"></label>
+    <button id="nameSave">이름 정하기</button>
+  </fieldset>
   <fieldset id="entry" disabled>
     <legend>대기실</legend>
     <button id="create">방 만들기</button>
     <label>초대 코드 <input id="code" maxlength="6" inputmode="numeric"></label>
     <button id="join">입장</button>
+    · 솔로 <select id="soloLength"><option value="5">5분</option><option value="10" selected>10분</option><option value="15">15분</option><option value="20">20분</option></select>
+    <button id="solo">혼자 출근</button>
   </fieldset>
+  <section id="fame">
+    <h2>명예의 전당 (솔로)</h2>
+    <div id="fameBoards">불러오는 중…</div>
+  </section>
   <section id="lobby" hidden>
     <h2 id="roomTitle"></h2>
     <p id="players"></p>
@@ -221,6 +233,9 @@
     socket = new WebSocket(url);
     socket.onopen = () => {
       retries = 0;
+      const profileToken = localStorage.getItem(PROFILE_KEY);
+      if (profileToken) socket.send('PROFILE LOGIN ' + profileToken);
+      socket.send('LEADERBOARD');
       const seat = savedSeat();
       if (seat) {
         resuming = true;
@@ -234,6 +249,42 @@
     socket.onmessage = onMessage;
     socket.onclose = onClose;
   }
+  // 프로필: 처음 이름을 정하면 받은 비밀 열쇠를 이 브라우저에 보관하고, 다음 접속 때 PROFILE LOGIN으로 보낸다.
+  const PROFILE_KEY = 'officeStockProfile';
+  let myName = null;
+  el('nameSave').onclick = () => {
+    const name = el('nameInput').value.trim();
+    if (!name) return;
+    socket.send((myName ? 'PROFILE NAME ' : 'PROFILE NEW ') + name);
+  };
+  function renderProfile(name) {
+    myName = name;
+    el('profileName').textContent = name ? '내 이름: ' + name : '이름을 정하면 솔로 게임 기록이 명예의 전당에 남습니다.';
+    el('nameSave').textContent = name ? '이름 바꾸기' : '이름 정하기';
+    el('nameInput').value = '';
+  }
+  function renderFame(boards) {
+    const box = el('fameBoards');
+    box.replaceChildren();
+    for (const board of boards) {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'display:inline-block;vertical-align:top;margin:0 1.5rem 1rem 0';
+      wrap.append(Object.assign(document.createElement('h3'), {textContent: board.minutes + '분'}));
+      if (!board.entries.length) { wrap.append('아직 기록이 없습니다.'); box.append(wrap); continue; }
+      const table = document.createElement('table');
+      table.innerHTML = '<thead><tr><th>순위</th><th>이름</th><th>최고 수익률</th><th>판 수</th><th>평균</th></tr></thead>';
+      const body = table.createTBody();
+      const pct = v => (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+      for (const e of board.entries) {
+        const tr = body.insertRow();
+        for (const text of [e.rank + '위', e.name + (e.name === myName ? ' (나)' : ''), pct(e.bestReturnPercent), e.games + '판', pct(e.averageReturnPercent)])
+          tr.insertCell().textContent = text;
+      }
+      wrap.append(table);
+      box.append(wrap);
+    }
+  }
+  el('solo').onclick = () => socket.send('SOLO ' + el('soloLength').value);
   el('create').onclick = () => socket.send('CREATE');
   el('join').onclick = () => socket.send('JOIN ' + el('code').value.trim());
   el('start').onclick = () => socket.send('START');
@@ -1250,6 +1301,16 @@
       levSel.value = [...levSel.options].some(o => o.value === chosen) ? chosen : '1';
       el('loan').textContent = '비상 대출 받기 (한 판에 한 번 · 최대 ' + won(loanTerms.maxWon) +
         ' · 퇴근 때 원금의 ' + (100 + loanTerms.interestPercent) + '% 상환)';
+    } else if (message.type === 'profile') {
+      if (message.token) localStorage.setItem(PROFILE_KEY, message.token);
+      renderProfile(message.name);
+      socket.send('LEADERBOARD');
+    } else if (message.type === 'profileFailed') {
+      localStorage.removeItem(PROFILE_KEY);
+      renderProfile(null);
+      el('status').textContent = message.message;
+    } else if (message.type === 'leaderboard') {
+      renderFame(message.boards);
     } else if (message.type === 'mic') {
       if (message.on) micLevels.set(message.player, message.level); else micLevels.delete(message.player);
       renderMics();
@@ -1257,6 +1318,7 @@
       showPopup('사내 소식 · ' + message.message, '');
       el('status').textContent = message.message;
     } else if (message.type === 'result') {
+      socket.send('LEADERBOARD');
       renderResults(message);
     } else if (message.type === 'newsHistory') {
       renderHistory(message.items);

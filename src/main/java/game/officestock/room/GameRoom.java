@@ -12,11 +12,18 @@ public final class GameRoom {
     private static final int MAX_PLAYERS = 4;
 
     private final UUID hostId;
+    /** 솔로 방은 방장 혼자 시작하고 아무도 들어올 수 없다. */
+    private final boolean solo;
     private final Set<UUID> players = new LinkedHashSet<>();
     private Instant startedAt;
 
     public GameRoom(UUID hostId) {
+        this(hostId, false);
+    }
+
+    public GameRoom(UUID hostId, boolean solo) {
         this.hostId = Objects.requireNonNull(hostId);
+        this.solo = solo;
         players.add(hostId);
     }
 
@@ -26,6 +33,7 @@ public final class GameRoom {
             throw new IllegalStateException("이미 시작한 방입니다.");
         }
         if (players.contains(playerId)) return;
+        if (solo) throw new IllegalStateException("혼자 하는 방이라 들어갈 수 없습니다.");
         if (players.size() >= MAX_PLAYERS) {
             throw new IllegalStateException("방이 가득 찼습니다.");
         }
@@ -37,7 +45,7 @@ public final class GameRoom {
             throw new IllegalStateException("방장만 시작할 수 있습니다.");
         }
         if (startedAt != null) return;
-        if (players.size() < MIN_PLAYERS) {
+        if (!solo && players.size() < MIN_PLAYERS) {
             throw new IllegalStateException("두 명 이상 모이면 시작할 수 있습니다.");
         }
         startedAt = Objects.requireNonNull(serverTime);

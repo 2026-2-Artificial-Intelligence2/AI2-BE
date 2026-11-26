@@ -8,6 +8,8 @@ import game.officestock.market.StockCatalog;
 import game.officestock.market.StockPool;
 import game.officestock.player.PlayerWallet;
 import game.officestock.player.WorkDesk;
+import game.officestock.profile.ProfileService;
+import game.officestock.profile.ResultService;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.security.SecureRandom;
@@ -87,8 +89,13 @@ public class LobbySocket extends TextWebSocketHandler {
     private final NewsCatalog news;
     /** 한 판에 상장하는 일반 종목 수. 0이면 전부. */
     private final int stocksPerGame;
+    private final ProfileService profiles;
+    private final ResultService results;
+    /** 세션에 붙여 두는 로그인한 프로필(ProfileService.View). */
+    private static final String PROFILE = "profile";
 
     public LobbySocket(ObjectMapper json, PlaytestLog playtest, StockCatalog catalog, NewsCatalog news,
+            ProfileService profiles, ResultService results,
             @Value("${game.starting-cash-won}") long startingCashWon,
             @Value("${game.work-reward-won}") long workRewardWon,
             @Value("${game.session-seconds}") long sessionSeconds,
@@ -122,6 +129,8 @@ public class LobbySocket extends TextWebSocketHandler {
         this.news = news;
         if (stocksPerGame < 0) throw new IllegalArgumentException("한 판 상장 종목 수를 확인하세요.");
         this.stocksPerGame = stocksPerGame;
+        this.profiles = profiles;
+        this.results = results;
         reaper.scheduleWithFixedDelay(this::reapRooms, 5, 5, TimeUnit.SECONDS);
     }
 
@@ -186,9 +195,15 @@ public class LobbySocket extends TextWebSocketHandler {
             return tick >= lunchStartTick && tick < bossReturnTick;
         }
 
-        Lobby(String code, UUID host, Market market, long sessionSeconds) {
+        /** 혼자 하는 방. 메신저·익명 찌라시가 없고, 시장에 보이지 않는 세력이 들어오고, 결과가 명예의 전당에 오른다. */
+        final boolean solo;
+        /** 플레이어별 프로필 id. 이름을 정하지 않고 들어온 사람은 없다(결과를 저장하지 않는다). */
+        final Map<UUID, UUID> profileIds = new HashMap<>();
+
+        Lobby(String code, UUID host, Market market, long sessionSeconds, boolean solo) {
             this.code = code;
-            this.game = new GameRoom(host);
+            this.solo = solo;
+            this.game = new GameRoom(host, solo);
             this.market = market;
             this.sessionSeconds = sessionSeconds;
             this.sessionTicks = sessionSeconds / Market.TICK_SECONDS;
@@ -235,6 +250,14 @@ public class LobbySocket extends TextWebSocketHandler {
         var command = message.getPayload().strip();
         var member = (Membership) session.getAttributes().get(MEMBERSHIP);
         try {
+            if (command.startsWith("PROFILE ")) {
+                profileCommand(session, command.substring(8).strip());
+                return;
+            }
+            if (command.equals("LEADERBOARD")) {
+                send(session, Map.of("type", "leaderboard", "boards", results.leaderboard()));
+                return;
+            }
             if (member != null) {
                 var lobby = member.lobby();
                 lobby.lock.lock();
@@ -251,7 +274,7 @@ public class LobbySocket extends TextWebSocketHandler {
                     if (command.equals("RESTART")) {
                         if (!lobby.finished) throw new IllegalStateException("퇴근한 뒤에 다시 할 수 있습니다.");
                         lobby.game.reset(member.player());
-                        lobby.nextRound(newMarket(lobby.sessionSeconds));
+                        lobby.nextRound(newMarket(lobby.sessionSeconds, lobby.solo));
                         log.info("방 {} {}번째 판 대기", lobby.code, lobby.round);
                         broadcast(lobby);
                         return;
@@ -263,6 +286,10 @@ public class LobbySocket extends TextWebSocketHandler {
                     if (command.startsWith("LENGTH ")) {
                         setLength(lobby, member.player(), command.substring(7).strip());
                         return;
+                    }
+                    if (lobby.solo && (command.startsWith("CHAT ") || command.startsWith("LEAK")
+                            || command.equals("MESSENGER"))) {
+                        throw new IllegalStateException("솔로 게임에는 메신저가 없습니다.");
                     }
                     if (command.startsWith("CHAT ")) {
                         chat(lobby, member.player(), command.substring(5));
@@ -330,7 +357,9 @@ public class LobbySocket extends TextWebSocketHandler {
                     lobby.lock.unlock();
                 }
             } else if (command.equals("CREATE")) {
-                create(session);
+                create(session, false, sessionSeconds);
+            } else if (command.equals("SOLO") || command.startsWith("SOLO ")) {
+                solo(session, command.substring(4).strip());
             } else if (command.startsWith("JOIN ")) {
                 join(session, command.substring(5).strip().toUpperCase(Locale.ROOT));
             } else if (command.startsWith("RESUME ")) {
@@ -358,6 +387,8 @@ public class LobbySocket extends TextWebSocketHandler {
         }
         if (minutes < MIN_SESSION_MINUTES || minutes > MAX_SESSION_MINUTES)
             throw new IllegalArgumentException("근무 시간은 " + MIN_SESSION_MINUTES + "~" + MAX_SESSION_MINUTES + "분 사이로 정하세요.");
+        if (lobby.solo && !ResultService.BOARD_MINUTES.contains(minutes))
+            throw new IllegalArgumentException("솔로 게임은 " + ResultService.BOARD_MINUTES + "분 중에서 고르세요.");
         lobby.sessionSeconds = minutes * 60L;
         broadcast(lobby);
     }
@@ -366,7 +397,7 @@ public class LobbySocket extends TextWebSocketHandler {
         if (lobby.started()) return;
         lobby.game.start(requester, Instant.now());
         lobby.sessionTicks = lobby.sessionSeconds / Market.TICK_SECONDS;
-        lobby.market = newMarket(lobby.sessionSeconds);
+        lobby.market = newMarket(lobby.sessionSeconds, lobby.solo);
         lobby.lunchStartTick = Math.round(lobby.sessionTicks * LUNCH_START_FRACTION);
         lobby.lunchEndTick = lobby.lunchStartTick + Math.round(lobby.sessionTicks * LUNCH_LENGTH_FRACTION);
         boolean early = random.nextDouble() < lunchEarlyReturnChance;
@@ -866,7 +897,27 @@ public class LobbySocket extends TextWebSocketHandler {
         lobby.standings = Settlement.standings(desksByPlayer, lobby.market);
         log.info("방 {} 퇴근 정산: {}", lobby.logName(), lobby.standings);
         desksByPlayer.forEach((label, desk) -> playtest.summary(lobby.logName(), label, desk.timings()));
+        saveResults(lobby);
         for (var entry : lobby.clients.entrySet()) sendResult(lobby, entry.getKey(), entry.getValue());
+    }
+
+    /** 이름을 정한 사람의 결과를 저장한다. 솔로 결과는 명예의 전당에 쓰인다. 저장에 실패해도 정산은 그대로 보낸다. */
+    private void saveResults(Lobby lobby) {
+        var entries = new ArrayList<ResultService.Entry>();
+        for (var standing : lobby.standings) {
+            lobby.labels.forEach((player, label) -> {
+                var profileId = lobby.profileIds.get(player);
+                if (profileId != null && label.equals(standing.player()))
+                    entries.add(new ResultService.Entry(profileId, standing.netWorthWon(), standing.bankrupt()));
+            });
+        }
+        if (entries.isEmpty()) return;
+        try {
+            results.record(lobby.solo ? "solo" : "multi", lobby.sessionSeconds, startingCashWon, lobby.code,
+                    lobby.standings.size(), entries);
+        } catch (RuntimeException e) {
+            log.warn("방 {} 결과 저장 실패", lobby.logName(), e);
+        }
     }
 
     private void sendResult(Lobby lobby, UUID player, WebSocketSession session) throws IOException {
@@ -926,18 +977,41 @@ public class LobbySocket extends TextWebSocketHandler {
         }
     }
 
-    private void create(WebSocketSession session) throws IOException {
+    /** SOLO [분]: 혼자 하는 방을 만들고 바로 시작한다. 이름(프로필)이 있어야 명예의 전당에 오른다. */
+    private void solo(WebSocketSession session, String minutesText) throws IOException {
+        if (session.getAttributes().get(PROFILE) == null)
+            throw new IllegalStateException("솔로 게임은 이름을 정한 뒤에 할 수 있습니다.");
+        int minutes = 10;
+        if (!minutesText.isEmpty()) {
+            try {
+                minutes = Integer.parseInt(minutesText);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("근무 시간은 분 단위 정수여야 합니다.");
+            }
+        }
+        if (!ResultService.BOARD_MINUTES.contains(minutes))
+            throw new IllegalArgumentException("솔로 게임은 " + ResultService.BOARD_MINUTES + "분 중에서 고르세요.");
+        var lobby = create(session, true, minutes * 60L);
+        lobby.lock.lock();
+        try {
+            start(lobby, lobby.game.snapshot().hostId());
+        } finally {
+            lobby.lock.unlock();
+        }
+    }
+
+    private Lobby create(WebSocketSession session, boolean solo, long seconds) throws IOException {
         var host = UUID.randomUUID();
         while (true) {
             var code = Integer.toString(100_000 + random.nextInt(900_000));
-            var lobby = new Lobby(code, host, newMarket(sessionSeconds), sessionSeconds);
+            var lobby = new Lobby(code, host, newMarket(seconds, solo), seconds, solo);
             lobby.lock.lock();
             try {
                 if (rooms.putIfAbsent(code, lobby) != null) continue;
                 attach(session, lobby, host);
                 broadcast(lobby);
                 sendChatHistory(session, lobby, host);
-                return;
+                return lobby;
             } finally {
                 lobby.lock.unlock();
             }
@@ -950,6 +1024,9 @@ public class LobbySocket extends TextWebSocketHandler {
         lobby.lock.lock();
         try {
             if (rooms.get(code) != lobby) throw new IllegalStateException("종료된 방입니다.");
+            var profile = (ProfileService.View) session.getAttributes().get(PROFILE);
+            if (profile != null && lobby.profileIds.containsValue(profile.id()))
+                throw new IllegalStateException("이미 이 방에 들어와 있습니다(다른 창).");
             var player = UUID.randomUUID();
             lobby.game.join(player);
             attach(session, lobby, player);
@@ -1009,10 +1086,56 @@ public class LobbySocket extends TextWebSocketHandler {
     }
 
     /** 판마다 상장 종목을 새로 뽑고, 뉴스 덱도 그 종목에 맞춘다. */
-    private Market newMarket(long seconds) {
+    private Market newMarket(long seconds, boolean solo) {
         var random = new SplittableRandom();
         var listed = catalog.pick(stocksPerGame, random);
-        return new Market(listed, listed == catalog ? news : news.restrictTo(listed), random, seconds);
+        return new Market(listed, listed == catalog ? news : news.restrictTo(listed), random, seconds, solo);
+    }
+
+    /**
+     * PROFILE NEW 이름 / PROFILE LOGIN 열쇠 / PROFILE NAME 새이름 / PROFILE CUSTOM {json}.
+     * 방 밖에서도 안에서도 쓸 수 있다. 이름을 바꿔도 지금 들어가 있는 방의 이름은 다음 방부터 바뀐다.
+     */
+    private void profileCommand(WebSocketSession session, String rest) throws IOException {
+        int space = rest.indexOf(' ');
+        var verb = space < 0 ? rest : rest.substring(0, space);
+        var arg = space < 0 ? "" : rest.substring(space + 1).strip();
+        var current = (ProfileService.View) session.getAttributes().get(PROFILE);
+        switch (verb) {
+            case "NEW" -> {
+                var created = profiles.create(arg);
+                session.getAttributes().put(PROFILE, created.profile());
+                send(session, profileMessage(created.profile(), created.token()));
+            }
+            case "LOGIN" -> {
+                ProfileService.View found;
+                try {
+                    found = profiles.login(arg);
+                } catch (IllegalArgumentException e) {
+                    send(session, Map.of("type", "profileFailed", "message", e.getMessage()));
+                    return;
+                }
+                session.getAttributes().put(PROFILE, found);
+                send(session, profileMessage(found, null));
+            }
+            case "NAME", "CUSTOM" -> {
+                if (current == null) throw new IllegalStateException("먼저 이름을 정하세요.");
+                var updated = verb.equals("NAME") ? profiles.rename(current.id(), arg)
+                        : profiles.customize(current.id(), arg);
+                session.getAttributes().put(PROFILE, updated);
+                send(session, profileMessage(updated, null));
+            }
+            default -> throw new IllegalArgumentException("PROFILE 명령은 NEW, LOGIN, NAME, CUSTOM 중 하나입니다.");
+        }
+    }
+
+    private static Map<String, Object> profileMessage(ProfileService.View profile, String token) {
+        var message = new LinkedHashMap<String, Object>();
+        message.put("type", "profile");
+        message.put("name", profile.name());
+        message.put("customization", profile.customization());
+        if (token != null) message.put("token", token);
+        return message;
     }
 
     /** 화면이 종목 코드를 이름으로 바꿀 수 있게 게임 시작·재접속 때 보내는 이번 판 종목 목록. */
@@ -1027,7 +1150,11 @@ public class LobbySocket extends TextWebSocketHandler {
 
     private void attach(WebSocketSession session, Lobby lobby, UUID player) {
         lobby.clients.put(player, session);
-        lobby.labels.put(player, "P" + lobby.nextLabel++);
+        // 이름을 정한 사람은 그 이름으로, 아니면 P1, P2…로 부른다(이름 규칙이 P숫자를 막아 겹치지 않는다).
+        var profile = (ProfileService.View) session.getAttributes().get(PROFILE);
+        int number = lobby.nextLabel++;
+        lobby.labels.put(player, profile != null ? profile.name() : "P" + number);
+        if (profile != null) lobby.profileIds.put(player, profile.id());
         var bytes = new byte[18];
         random.nextBytes(bytes);
         lobby.tokens.put(player, Base64.getUrlEncoder().withoutPadding().encodeToString(bytes));
@@ -1042,11 +1169,11 @@ public class LobbySocket extends TextWebSocketHandler {
                 "label", lobby.labels.get(id), "host", id.equals(state.hostId()),
                 "online", lobby.clients.containsKey(id))).toList();
         for (var entry : lobby.clients.entrySet()) {
-            send(entry.getValue(), Map.of("type", "state", "code", lobby.code,
-                    "you", entry.getKey(), "token", lobby.tokens.get(entry.getKey()),
-                    "room", state, "offline", offline, "round", lobby.round,
-                    "sessionSeconds", lobby.sessionSeconds, "members", members,
-                    "youLabel", lobby.labels.get(entry.getKey())));
+            send(entry.getValue(), Map.ofEntries(Map.entry("type", "state"), Map.entry("code", lobby.code),
+                    Map.entry("you", entry.getKey()), Map.entry("token", lobby.tokens.get(entry.getKey())),
+                    Map.entry("room", state), Map.entry("offline", offline), Map.entry("round", lobby.round),
+                    Map.entry("sessionSeconds", lobby.sessionSeconds), Map.entry("members", members),
+                    Map.entry("solo", lobby.solo), Map.entry("youLabel", lobby.labels.get(entry.getKey()))));
         }
     }
 

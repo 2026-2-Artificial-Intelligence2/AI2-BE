@@ -1,0 +1,22 @@
+# 개발용 PostgreSQL. 서버를 띄우기 전에 한 번 켠다: docker compose up -d
+# 계정과 비밀번호는 내 컴퓨터 개발용이다. 배포할 때는 DB_URL, DB_USER, DB_PASSWORD 환경 변수로 바꾼다.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: office-stock-db
+    environment:
+      POSTGRES_DB: officestock
+      POSTGRES_USER: officestock
+      POSTGRES_PASSWORD: officestock
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - office-stock-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U officestock -d officestock"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  office-stock-db:
