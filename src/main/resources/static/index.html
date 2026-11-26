@@ -517,7 +517,8 @@
   // ── 음성 대화 (WebRTC) ─────────────────────────────────
   // 음성은 브라우저끼리 직접 주고받고(서버를 거치지 않음), 서버는 연결 정보(offer·answer·ICE 후보)만 전달한다.
   // 두 사람 중 이름이 앞서는 쪽이 연결을 제안(offer)해서 양쪽이 동시에 제안하는 충돌을 피한다.
-  const VOICE_ICE = [{urls: 'stun:stun.l.google.com:19302'}];
+  // STUN·TURN 서버는 음성 참여 때 서버가 voiceConfig로 알려 준다(TURN이 있어야 휴대폰 데이터망에서도 연결된다).
+  let voiceIce = [{urls: 'stun:stun.l.google.com:19302'}];
   const voice = {stream: null, joined: false, muted: false, peers: new Map(), members: [], context: null, localLevel: 0};
   const voiceVolume = new Map();   // 사람별 음량(0~1). 다시 연결돼도 유지한다.
 
@@ -575,11 +576,18 @@
   }
 
   function makePeer(label) {
-    const pc = new RTCPeerConnection({iceServers: VOICE_ICE});
+    const pc = new RTCPeerConnection({iceServers: voiceIce});
     voice.stream.getTracks().forEach(t => pc.addTrack(t, voice.stream));
     pc.onicecandidate = e => { if (e.candidate) voiceSignal(label, {candidate: e.candidate}); };
     pc.ontrack = e => attachRemoteAudio(label, e.streams[0]);
-    pc.onconnectionstatechange = renderVoice;
+    pc.onconnectionstatechange = () => {
+      // 네트워크가 바뀌는 등으로 연결이 깨지면 다시 맺는다.
+      if (pc.connectionState === 'failed') {
+        closePeer(label);
+        syncVoice(voice.members);
+      }
+      renderVoice();
+    };
     voice.peers.set(label, {pc, audio: null, analyser: null, pending: []});
     return pc;
   }
@@ -1517,6 +1525,8 @@
       el('status').textContent = message.message;
     } else if (message.type === 'leaderboard') {
       renderFame(message.boards);
+    } else if (message.type === 'voiceConfig') {
+      voiceIce = message.iceServers;
     } else if (message.type === 'voiceSignal') {
       onVoiceSignal(message);
     } else if (message.type === 'mic') {

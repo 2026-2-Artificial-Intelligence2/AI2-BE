@@ -174,7 +174,8 @@ class GameFlowTest {
         b.request("JOIN " + code, "state");
         c.request("JOIN " + code, "state");
 
-        a.request("VOICE JOIN", "state");
+        var config = a.request("VOICE JOIN", "voiceConfig");
+        assertThat(config.path("iceServers").get(0).path("urls").asText()).startsWith("stun:");
         int from = a.received.size();
         b.send("VOICE JOIN");
         var state = a.await("state", m -> m.path("members").findValuesAsText("voice").stream()

@@ -265,6 +265,15 @@
 
 속보는 `headline`이 "종목 이름 · 제목"(여러 종목 뉴스는 제목만)이고, `body`는 본문이다(없으면 null).
 
+### `voiceConfig` — 음성 연결에 쓸 서버
+
+`VOICE JOIN`을 보낸 사람에게만, `state`보다 먼저 온다. `RTCPeerConnection({iceServers})`에 그대로 넣는다. TURN(중계)이 들어 있으면 휴대폰 데이터망에서도 연결된다(README "음성 대화와 TURN").
+
+```json
+{"type":"voiceConfig","iceServers":[{"urls":"stun:stun.l.google.com:19302"},
+  {"urls":["turn:relay.example.com:3478"],"username":"u","credential":"p"}]}
+```
+
 ### `voiceSignal` — 음성 연결 정보
 
 ```json
