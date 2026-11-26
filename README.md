@@ -6,6 +6,7 @@
 |---|---|
 | [GAME_DESIGN.md](GAME_DESIGN.md) | 게임 규칙, 수치, 시뮬레이션 근거, 종목·뉴스 추가 방법 |
 | [PROTOCOL.md](PROTOCOL.md) | 프론트엔드가 서버와 주고받는 명령과 메시지 |
+| [docs/PROGRESS.md](docs/PROGRESS.md) | 지금까지의 진행 순서, 주요 결정과 근거, 검증 결과, 남은 일 |
 
 서버에는 확인용 임시 화면(`src/main/resources/static/index.html`)이 들어 있어서, 서버만 띄워도 브라우저로 바로 플레이할 수 있다. 따로 만드는 프론트엔드는 이 화면과 PROTOCOL.md를 참고하면 된다.
 
