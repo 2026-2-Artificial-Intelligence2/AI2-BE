@@ -15,6 +15,8 @@ public final class PlayerWallet {
     private final Map<String, Long> costBasis = new HashMap<>();
     /** 판 주식에서 확정된 손익의 합. */
     private long realizedWon;
+    /** 비상 대출을 받았으면 퇴근 때 갚을 원리금. 0이면 아직 안 받았다. 한 판에 한 번. */
+    private long loanRepayWon;
 
     public Map<String, Long> holdings() {
         return Map.copyOf(holdings);
@@ -67,10 +69,22 @@ public final class PlayerWallet {
         completedTasks = taskNumber;
     }
 
-    public record Balance(long cashWon, long workIncomeWon, long completedTasks) {}
+    /** 비상 대출: 현금을 받고, 퇴근 정산에서 원리금을 뺀다. 자격(순자산 기준)은 호출하는 쪽이 확인한다. */
+    public void takeLoan(long amountWon, long repayWon) {
+        if (loanRepayWon > 0) throw new IllegalStateException("비상 대출은 한 판에 한 번만 받을 수 있습니다.");
+        if (amountWon <= 0 || repayWon < amountWon) throw new IllegalArgumentException("대출 조건을 확인하세요.");
+        cashWon = Math.addExact(cashWon, amountWon);
+        loanRepayWon = repayWon;
+    }
+
+    public long loanRepayWon() {
+        return loanRepayWon;
+    }
+
+    public record Balance(long cashWon, long workIncomeWon, long completedTasks, long loanRepayWon) {}
 
     public Balance balance() {
-        return new Balance(cashWon, workIncomeWon, completedTasks);
+        return new Balance(cashWon, workIncomeWon, completedTasks, loanRepayWon);
     }
 
     /**

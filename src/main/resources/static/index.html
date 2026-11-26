@@ -54,6 +54,7 @@
   <button id="switchView" hidden>주식 창 열기 (Tab)</button>
   <p id="meeting" role="status" hidden>부장님과 면담 중입니다.</p>
   <p id="balance" hidden></p>
+  <p><button id="loan" hidden></button></p>
   <p id="news" role="status" hidden></p>
   <details id="inbox" hidden>
     <summary>뉴스 알림창</summary>
@@ -103,7 +104,7 @@
     <p><button id="restart" hidden>같은 방에서 다시 하기</button>
       <span id="restartNote" hidden>방장이 다시 하기를 누르면 같은 방의 대기실로 돌아갑니다.</span></p>
     <table>
-      <thead><tr><th>순위</th><th>직원</th><th>순자산</th><th>현금</th><th>주식 청산가</th><th>업무 수당</th><th>보유 주식</th></tr></thead>
+      <thead><tr><th>순위</th><th>직원</th><th>순자산</th><th>현금</th><th>주식 청산가</th><th>대출 상환</th><th>업무 수당</th><th>보유 주식</th></tr></thead>
       <tbody id="standings"></tbody>
     </table>
     <p>주식은 퇴근 순간 혼자 전부 팔았을 때 받을 금액으로 평가합니다.</p>
@@ -224,6 +225,8 @@
     el('market').hidden = view !== 'MARKET';
     el('meeting').hidden = view !== 'MEETING';
     el('switchView').hidden = el('balance').hidden = el('inbox').hidden = !seated;
+    seatedNow = seated;
+    renderLoan();
     el('switchView').textContent = view === 'WORK' ? '주식 창 열기 (Tab)' : '업무 창 열기 (Tab)';
     if (!seated) {
       el('inbox').open = false;
@@ -376,6 +379,7 @@
       const holdings = Object.entries(row.holdings).map(([s, q]) => stockName(s) + ' ' + q + '주').join(', ') || '없음';
       for (const text of [row.rank + '위', row.player + (row.player === you ? ' (나)' : ''),
           won(row.netWorthWon), won(row.cashWon), won(row.stockValueWon),
+          row.loanRepayWon ? '-' + won(row.loanRepayWon) : '-',
           won(row.workIncomeWon) + ' (' + row.completedTasks + '건)', holdings]) {
         tr.insertCell().textContent = text;
       }
@@ -395,6 +399,23 @@
     el('results').hidden = false;
     const mine = standings.find(row => row.player === you);
     el('status').textContent = mine ? '퇴근했습니다. ' + mine.rank + '위 · 순자산 ' + won(mine.netWorthWon) : '퇴근했습니다.';
+  }
+
+  // 데스크톱 알림 팝업: 제목과 본문 첫 줄(넘치면 …). 본문이 있으면 5초, 없으면 4초.
+  function showPopup(titleText, bodyText) {
+    const news = el('news');
+    const title = document.createElement('strong');
+    title.textContent = titleText;
+    news.replaceChildren(title);
+    if (bodyText) {
+      const line = document.createElement('span');
+      line.className = 'body';
+      line.textContent = bodyText;
+      news.append(line);
+    }
+    news.hidden = false;
+    clearTimeout(popupTimer);
+    popupTimer = setTimeout(() => { news.hidden = true; }, bodyText ? 5000 : 4000);
   }
 
   function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds, portfolio, coughBeat, lunchStartsInSeconds, lunchEndsInSeconds}) {
@@ -421,18 +442,7 @@
     }
     if (newsNumber > lastNewsNumber) {
       lastNewsNumber = newsNumber;
-      const title = document.createElement('strong');
-      title.textContent = newsLabel(newsKind) + headline;
-      news.replaceChildren(title);
-      if (newsBody) {
-        const line = document.createElement('span');
-        line.className = 'body';
-        line.textContent = newsBody;
-        news.append(line);
-      }
-      news.hidden = false;
-      clearTimeout(popupTimer);
-      popupTimer = setTimeout(() => { news.hidden = true; }, newsBody ? 5000 : 4000);
+      showPopup(newsLabel(newsKind) + headline, newsBody);
       requestHistory();
     }
     const symbols = stocks.map(s => s.id).filter(id => id in prices);
@@ -457,6 +467,8 @@
         profit.textContent = '-';
       }
     }
+    stockValueNow = Object.values(portfolio.positions).reduce((sum, p) => sum + p.valueWon, 0);
+    renderLoan();
     const open = Object.values(portfolio.positions).reduce((sum, p) => sum + p.profitWon, 0);
     el('profitSummary').textContent = '보유 주식 손익 ' + signedWon(open) + ' · 판 주식에서 확정된 손익 ' +
       signedWon(portfolio.realizedWon) + ' (청산가는 지금 혼자 전부 팔면 받을 금액이며, 퇴근 정산도 이 값으로 합니다)';
@@ -481,7 +493,23 @@
     }
   }
 
+  // 비상 대출: 순자산(현금 + 주식 청산가)이 기준 미만이고 아직 안 받았을 때만 버튼을 보여준다. 서버도 같은 조건을 확인한다.
+  let loanTerms = null;
+  let stockValueNow = 0;
+  let loanRepayNow = 0;
+  let seatedNow = false;
+  function renderLoan() {
+    const eligible = loanTerms && seatedNow && !loanRepayNow &&
+      Number(cashNow) + stockValueNow < loanTerms.limitWon;
+    el('loan').hidden = !eligible;
+  }
+  el('loan').onclick = () => {
+    if (confirm(el('loan').textContent + '\n받으면 모두에게 알려집니다.')) socket.send('LOAN');
+  };
+
   function resetGameView() {
+    loanRepayNow = 0;
+    stockValueNow = 0;
     renderMyTrades([]);
     el('profitSummary').textContent = '';
     clearNews();
@@ -549,6 +577,11 @@
       renderMyTrades(message.trades);
     } else if (message.type === 'catalog') {
       stocks = message.stocks;
+      loanTerms = message.loan;
+      el('loan').textContent = '비상 대출 ' + won(loanTerms.amountWon) + ' 받기 (퇴근 때 ' + won(loanTerms.repayWon) + ' 상환, 한 판에 한 번)';
+    } else if (message.type === 'notice') {
+      showPopup('사내 소식 · ' + message.message, '');
+      el('status').textContent = message.message;
     } else if (message.type === 'result') {
       renderResults(message);
     } else if (message.type === 'newsHistory') {
@@ -563,8 +596,11 @@
       taskNumber = task.number;
       cashNow = BigInt(balance.cashWon);
       renderEstimate();
+      loanRepayNow = balance.loanRepayWon;
       el('balance').textContent =
-        '내 현금 ' + won(balance.cashWon) + ' · 누적 업무 수당 ' + won(balance.workIncomeWon);
+        '내 현금 ' + won(balance.cashWon) + ' · 누적 업무 수당 ' + won(balance.workIncomeWon) +
+        (balance.loanRepayWon ? ' · 퇴근 때 대출 상환 ' + won(balance.loanRepayWon) : '');
+      renderLoan();
       el('taskTitle').textContent = '업무 ' + task.number + ' · 완료 수당 ' + won(rewardWon);
       el('a1').textContent = task.a1;
       el('a2').textContent = task.a2;

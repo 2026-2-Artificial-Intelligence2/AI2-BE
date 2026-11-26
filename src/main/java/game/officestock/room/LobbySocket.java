@@ -63,6 +63,8 @@ public class LobbySocket extends TextWebSocketHandler {
     private final long workRewardWon;
     private final long sessionSeconds;
     private final double lunchEarlyReturnChance;
+    /** 비상 대출: 순자산(현금 + 주식 청산가)이 limit 미만일 때 한 번, amount를 빌려주고 퇴근 때 repay를 뺀다. */
+    private final Map<String, Long> loanTerms;
     private final PlaytestLog playtest;
     private final StockCatalog catalog;
     private final NewsCatalog news;
@@ -73,12 +75,18 @@ public class LobbySocket extends TextWebSocketHandler {
             @Value("${game.starting-cash-won}") long startingCashWon,
             @Value("${game.work-reward-won}") long workRewardWon,
             @Value("${game.session-seconds}") long sessionSeconds,
-            @Value("${game.lunch-early-return-chance}") double lunchEarlyReturnChance) {
+            @Value("${game.lunch-early-return-chance}") double lunchEarlyReturnChance,
+            @Value("${game.loan-amount-won}") long loanAmountWon,
+            @Value("${game.loan-repay-won}") long loanRepayWon,
+            @Value("${game.loan-net-worth-limit-won}") long loanLimitWon) {
         if (startingCashWon < 0 || workRewardWon <= 0 || sessionSeconds <= 0) {
             throw new IllegalArgumentException("시작 자금, 업무 수당, 근무 시간 설정을 확인하세요.");
         }
         this.sessionSeconds = sessionSeconds;
         this.lunchEarlyReturnChance = lunchEarlyReturnChance;
+        if (loanAmountWon <= 0 || loanRepayWon < loanAmountWon || loanLimitWon <= 0)
+            throw new IllegalArgumentException("비상 대출 설정을 확인하세요.");
+        this.loanTerms = Map.of("amountWon", loanAmountWon, "repayWon", loanRepayWon, "limitWon", loanLimitWon);
         this.startingCashWon = startingCashWon;
         this.workRewardWon = workRewardWon;
         this.json = json;
@@ -221,6 +229,10 @@ public class LobbySocket extends TextWebSocketHandler {
                         send(session, Map.of("type", "newsHistory", "items", lobby.market.history()));
                         return;
                     }
+                    if (command.equals("LOAN")) {
+                        takeLoan(lobby, member.player(), session);
+                        return;
+                    }
                     if (command.startsWith("WORK ")) {
                         submitWork(session, member, command);
                         return;
@@ -296,7 +308,7 @@ public class LobbySocket extends TextWebSocketHandler {
         }
         broadcast(lobby);
         for (var entry : lobby.clients.entrySet()) {
-            send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage));
+            send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage, "loan", loanTerms));
             sendDesk(entry.getValue(), lobby.desks.get(entry.getKey()));
         }
         broadcastMarket(lobby);
@@ -324,6 +336,28 @@ public class LobbySocket extends TextWebSocketHandler {
             playtest.task(member.lobby().logName(), member.lobby().labels.get(member.player()), timing);
         }
         sendDesk(session, desk);
+    }
+
+    private void takeLoan(Lobby lobby, UUID player, WebSocketSession session) throws IOException {
+        var desk = lobby.desks.get(player);
+        if (desk == null) throw new IllegalStateException("게임 시작 후 신청하세요.");
+        if (lobby.patrol.seats.get(player).view == Patrol.View.MEETING)
+            throw new IllegalStateException("훈계가 끝나면 신청하세요.");
+        var wallet = desk.wallet();
+        long netWorth = wallet.balance().cashWon() + wallet.portfolio(lobby.market::pool).positions().values()
+                .stream().mapToLong(p -> p.valueWon()).sum();
+        if (netWorth >= loanTerms.get("limitWon"))
+            throw new IllegalStateException("비상 대출은 순자산이 " + String.format("%,d", loanTerms.get("limitWon"))
+                    + "원 미만일 때만 받을 수 있습니다.");
+        wallet.takeLoan(loanTerms.get("amountWon"), loanTerms.get("repayWon"));
+        var label = lobby.labels.get(player);
+        log.info("방 {} {} 비상 대출 (순자산 {}원)", lobby.logName(), label, netWorth);
+        sendDesk(session, desk);
+        for (var client : lobby.clients.values()) {
+            send(client, Map.of("type", "notice",
+                    "message", label + "이(가) 비상 대출 " + String.format("%,d", loanTerms.get("amountWon")) + "원을 받았습니다."));
+        }
+        broadcastMarket(lobby);
     }
 
     private void sendDesk(WebSocketSession session, WorkDesk desk) throws IOException {
@@ -535,7 +569,7 @@ public class LobbySocket extends TextWebSocketHandler {
             log.info("방 {} {} 재접속", code, lobby.labels.getOrDefault(player, "대기실 참가자"));
             broadcast(lobby);
             if (!lobby.started()) return;
-            send(session, Map.of("type", "catalog", "stocks", catalogMessage));
+            send(session, Map.of("type", "catalog", "stocks", catalogMessage, "loan", loanTerms));
             sendDesk(session, lobby.desks.get(player));
             sendMyTrades(session, lobby, player);
             if (lobby.finished) {

@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** 퇴근 정산. 순자산 = 현금 + 보유 주식 청산가 − 대출 원리금(대출은 아직 없음). */
+/** 퇴근 정산. 순자산 = 현금 + 보유 주식 청산가 − 비상 대출 원리금. */
 final class Settlement {
     private Settlement() {}
 
@@ -16,7 +16,7 @@ final class Settlement {
                        long quantity, long amountWon) {}
 
     record Standing(int rank, String player, long netWorthWon, long cashWon, long stockValueWon,
-                    long workIncomeWon, long completedTasks, Map<String, Long> holdings) {}
+                    long loanRepayWon, long workIncomeWon, long completedTasks, Map<String, Long> holdings) {}
 
     /**
      * 주식은 기준가가 아니라 "지금 혼자 전부 팔면 받을 금액"으로 평가한다.
@@ -34,8 +34,9 @@ final class Settlement {
                 holdings.put(entry.getKey(), entry.getValue());
                 stockValue += market.pool(entry.getKey()).quoteSell(entry.getValue());
             }
-            rows.add(new Standing(0, player, balance.cashWon() + stockValue, balance.cashWon(),
-                    stockValue, balance.workIncomeWon(), balance.completedTasks(), holdings));
+            rows.add(new Standing(0, player, balance.cashWon() + stockValue - balance.loanRepayWon(),
+                    balance.cashWon(), stockValue, balance.loanRepayWon(), balance.workIncomeWon(),
+                    balance.completedTasks(), holdings));
         });
         rows.sort(Comparator.comparingLong(Standing::netWorthWon).reversed()
                 .thenComparing(Standing::player));
@@ -46,7 +47,8 @@ final class Settlement {
             int rank = i > 0 && row.netWorthWon() == rows.get(i - 1).netWorthWon()
                     ? ranked.get(i - 1).rank() : i + 1;
             ranked.add(new Standing(rank, row.player(), row.netWorthWon(), row.cashWon(),
-                    row.stockValueWon(), row.workIncomeWon(), row.completedTasks(), row.holdings()));
+                    row.stockValueWon(), row.loanRepayWon(), row.workIncomeWon(), row.completedTasks(),
+                    row.holdings()));
         }
         return ranked;
     }
