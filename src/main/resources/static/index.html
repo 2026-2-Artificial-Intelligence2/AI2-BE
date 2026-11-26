@@ -70,6 +70,7 @@
   <button id="openMessenger" hidden>메신저</button>
   <p id="meeting" role="status" hidden>부장님과 면담 중입니다.</p>
   <p id="balance" hidden></p>
+  <div id="colleagues" hidden></div>
   <p><button id="loan" hidden></button></p>
   <p id="news" role="status" hidden></p>
   <details id="inbox" hidden>
@@ -94,7 +95,18 @@
   <section id="market" hidden>
     <h2>주식 거래</h2>
     <table>
-      <thead><tr><th>종목</th><th>기준가</th><th>내 보유량</th><th>평균 매수가</th><th>청산가</th><th>손익</th></tr></thead>
+      <caption style="caption-side: top; text-align: left">
+        <label>딸깍 단위 <select id="clickSize">
+          <option value="q10">10주</option>
+          <option value="q50">50주</option>
+          <option value="q100">100주</option>
+          <option value="p25">25%</option>
+          <option value="p50">50%</option>
+          <option value="p100">전량</option>
+        </select></label>
+        <small>· 매수의 %는 현금 기준, 매도의 %는 팔 수 있는 보유량 기준</small>
+      </caption>
+      <thead><tr><th>종목</th><th>기준가</th><th>딸깍</th><th>내 보유량</th><th>평균 매수가</th><th>청산가</th><th>손익</th></tr></thead>
       <tbody id="quotes"></tbody>
     </table>
     <p id="profitSummary"></p>
@@ -287,6 +299,7 @@
     el('market').hidden = view !== 'MARKET';
     el('meeting').hidden = view !== 'MEETING';
     el('switchView').hidden = el('balance').hidden = el('inbox').hidden = !seated;
+    if (!seated) el('colleagues').hidden = true;
     seatedNow = seated;
     renderLoan();
     el('switchView').textContent = view === 'WORK' ? '주식 창 열기 (Tab)' : '업무 창 열기 (Tab)';
@@ -371,6 +384,50 @@
     else if (mode === 'won') socket.send([side + 'WON', symbol, n].join(' '));
     else socket.send(['LIMIT', side, symbol, el('limitPrice').value, n].join(' '));
   };
+  // 딸깍 매매: 시세표의 버튼 한 번으로 정해 둔 단위만큼 시장가로 사고판다.
+  // 수량 단위는 그대로, %는 매수면 지금 현금의, 매도면 팔 수 있는 보유량(지정가에 묶인 것 제외)의 비율이다.
+  function clickTrade(side, symbol) {
+    if (socket.readyState !== WebSocket.OPEN) return;
+    const size = el('clickSize').value;
+    if (size.startsWith('q')) {
+      socket.send([side, symbol, size.slice(1)].join(' '));
+      return;
+    }
+    const ratio = BigInt(size.slice(1));
+    if (side === 'BUY') {
+      const amount = cashNow * ratio / 100n;
+      if (amount <= 0n) { el('status').textContent = '현금이 없습니다.'; return; }
+      socket.send(['BUYWON', symbol, amount].join(' '));
+    } else {
+      const sellable = BigInt((holdingsNow[symbol] ?? 0) - lockedShares(symbol));
+      const quantity = ratio === 100n ? sellable : sellable * ratio / 100n;
+      if (quantity <= 0n) { el('status').textContent = '팔 수 있는 주식이 없습니다.'; return; }
+      socket.send(['SELL', symbol, quantity].join(' '));
+    }
+  }
+
+  // 동료 업무 게이지: 서버는 내 것을 빼고 보낸다. 내 게이지는 남에게만 보인다.
+  function renderColleagues(colleagues) {
+    const box = el('colleagues');
+    box.replaceChildren();
+    if (!colleagues?.length) { box.hidden = true; return; }
+    box.hidden = !seatedNow;
+    box.append(Object.assign(document.createElement('strong'), {textContent: '동료 업무 게이지 '}));
+    for (const c of colleagues) {
+      const item = document.createElement('span');
+      item.style.marginRight = '1rem';
+      const color = c.suspicion >= 70 ? '#c62828' : c.suspicion >= 40 ? '#ef6c00' : '#2e7d32';
+      item.innerHTML = '';
+      item.append(c.label + ' ');
+      const bar = document.createElement('span');
+      bar.style.cssText = 'display:inline-block;width:5rem;height:.6rem;border:1px solid #999;vertical-align:middle;' +
+        `background:linear-gradient(${color},${color}) no-repeat left/${c.suspicion}% 100%`;
+      bar.title = '의심 ' + c.suspicion + '/100';
+      item.append(bar, ' ' + c.suspicion + (c.meeting ? ' (훈계 중)' : ''));
+      box.append(item);
+    }
+  }
+
   // 주문 방식: 수량·금액은 바로 체결되는 시장가, 지정가는 걸어 두고 조건이 맞으면 체결된다.
   function setOrderMode(mode) {
     el('orderMode').value = mode;
@@ -613,7 +670,8 @@
   }
 
   function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds, portfolio, coughBeat, lunchStartsInSeconds, lunchEndsInSeconds,
-      books, candles, newsSecond, newsSymbols}) {
+      books, candles, newsSecond, newsSymbols, colleagues}) {
+    renderColleagues(colleagues);
     mergeCandles(candles);
     if (newsNumber && !newsMarks.has(newsNumber)) {
       newsMarks.set(newsNumber, {second: newsSecond, kind: newsKind, symbols: newsSymbols, headline});
@@ -657,6 +715,16 @@
       row.onclick = () => { select.value = symbol; select.dispatchEvent(new Event('change')); };
       row.insertCell().textContent = stockName(symbol);
       row.insertCell().textContent = won(prices[symbol]);
+      const quick = row.insertCell();
+      quick.style.whiteSpace = 'nowrap';
+      for (const [side, label, color] of [['BUY', '매수', '#c62828'], ['SELL', '매도', '#1565c0']]) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.style.color = color;
+        button.onclick = event => { event.stopPropagation(); clickTrade(side, symbol); };
+        quick.append(button);
+      }
       row.insertCell().textContent = (holdings[symbol] ?? 0) + '주';
       const position = portfolio.positions[symbol];
       row.insertCell().textContent = position ? won(position.avgPriceWon) : '-';

@@ -43,8 +43,8 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final String MEMBERSHIP = "membership";
     /** 시작 전 대기실에서 연결이 끊긴 사람의 자리를 지켜 주는 시간. 넘으면 퇴장 처리한다. */
     private static final long LOBBY_GRACE_NANOS = TimeUnit.SECONDS.toNanos(60);
-    /** 한 사람이 걸어 둘 수 있는 지정가 주문 수. */
-    private static final int MAX_OPEN_ORDERS = 5;
+    /** 지정가 주문 수는 규칙상 제한하지 않는다. 실수로 쏟아지는 것만 막는 안전장치다. */
+    private static final int MAX_OPEN_ORDERS = 100;
     /** 메신저: 메시지 길이, 연속 전송 간격, 방에 남기는 기록 수, 익명 찌라시 길이. */
     private static final int MAX_CHAT_LENGTH = 200;
     private static final long CHAT_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(400);
@@ -586,7 +586,7 @@ public class LobbySocket extends TextWebSocketHandler {
         if (quantity >= pool.reserves().shares()) throw new IllegalArgumentException("주문할 수 없는 수량입니다.");
         long open = lobby.orders.stream().filter(o -> o.player().equals(player)).count();
         if (open >= MAX_OPEN_ORDERS)
-            throw new IllegalStateException("지정가 주문은 한 사람당 " + MAX_OPEN_ORDERS + "건까지 걸 수 있습니다.");
+            throw new IllegalStateException("걸어 둔 지정가 주문이 너무 많습니다(" + MAX_OPEN_ORDERS + "건). 일부를 취소하세요.");
         long reserved = 0;
         try {
             if (buying) {
@@ -765,6 +765,10 @@ public class LobbySocket extends TextWebSocketHandler {
             books.put(symbol, lobby.market.orderBook(symbol));
         });
         var candles = lobby.market.chart().latest();
+        // 동료들의 업무 게이지(의심). 본인 것은 보내지 않는다: 내 게이지는 남에게만 보인다.
+        var gauges = new LinkedHashMap<UUID, Map<String, Object>>();
+        lobby.patrol.seats.forEach((id, s) -> gauges.put(id, Map.of("label", lobby.labels.get(id),
+                "suspicion", (int) Math.round(s.suspicion), "meeting", s.view == Patrol.View.MEETING)));
         for (var entry : lobby.clients.entrySet()) {
             var seat = lobby.patrol.seats.get(entry.getKey());
             if (seat.view == Patrol.View.MEETING) {
@@ -786,6 +790,8 @@ public class LobbySocket extends TextWebSocketHandler {
                     Map.entry("walking", lobby.patrol.walking),
                     Map.entry("step", lobby.patrol.step(seat)),
                     Map.entry("coughBeat", seat.coughBeat),
+                    Map.entry("colleagues", gauges.entrySet().stream()
+                            .filter(e -> !e.getKey().equals(entry.getKey())).map(Map.Entry::getValue).toList()),
                     Map.entry("lunchStartsInSeconds", (lobby.lunchStartTick - lobby.tick) * Market.TICK_SECONDS),
                     Map.entry("lunchEndsInSeconds", (lobby.lunchEndTick - lobby.tick) * Market.TICK_SECONDS),
                     Map.entry("remainingSeconds",
