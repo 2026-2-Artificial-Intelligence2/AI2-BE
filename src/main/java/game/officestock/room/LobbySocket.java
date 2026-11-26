@@ -3,6 +3,7 @@ package game.officestock.room;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import game.officestock.market.Market;
 import game.officestock.market.NewsCatalog;
+import game.officestock.market.PriceChart;
 import game.officestock.market.StockCatalog;
 import game.officestock.market.StockPool;
 import game.officestock.player.WorkDesk;
@@ -337,6 +338,7 @@ public class LobbySocket extends TextWebSocketHandler {
         }
         broadcast(lobby);
         for (var entry : lobby.clients.entrySet()) {
+            sendChart(entry.getValue(), lobby);
             send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon)));
             sendDesk(entry.getValue(), lobby.desks.get(entry.getKey()));
         }
@@ -500,7 +502,7 @@ public class LobbySocket extends TextWebSocketHandler {
         } catch (ArithmeticException e) {
             throw new IllegalArgumentException("처리할 수 있는 주문 범위를 초과했습니다.");
         }
-        lobby.market.recordTrade(symbol, spotBefore);
+        lobby.market.recordTrade(symbol, spotBefore, quantity);
         lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS,
                 lobby.labels.get(member.player()), symbol, buying ? "매수" : "매도", quantity, amount));
         sendDesk(session, desk);
@@ -508,6 +510,15 @@ public class LobbySocket extends TextWebSocketHandler {
                 "side", buying ? "매수" : "매도", "amount", amount));
         sendMyTrades(session, lobby, member.player());
         broadcastMarket(lobby);
+    }
+
+    /** 차트 전체(종목별 봉)와 지금까지의 뉴스 시각. 게임 시작·재접속 때 보내고, 이후로는 시세 메시지로 이어 붙인다. */
+    private void sendChart(WebSocketSession session, Lobby lobby) throws IOException {
+        send(session, Map.of("type", "chart", "candleSeconds", PriceChart.CANDLE_SECONDS,
+                "candles", lobby.market.chart().all(),
+                "news", lobby.market.history().stream()
+                        .map(n -> Map.of("number", n.number(), "second", n.second(), "kind", n.kind(),
+                                "symbols", n.symbols(), "headline", n.headline())).toList()));
     }
 
     /** 이번 판에서 내가 한 거래. 주문할 때와 재접속할 때 보낸다. */
@@ -585,14 +596,17 @@ public class LobbySocket extends TextWebSocketHandler {
     private void broadcastMarket(Lobby lobby) throws IOException {
         var history = lobby.market.history();
         var latest = history.isEmpty()
-                ? new Market.NewsItem(0, "news", List.of(), "", null) : history.getLast();
+                ? new Market.NewsItem(0, "news", List.of(), "", null, 0) : history.getLast();
         var prices = new HashMap<String, Long>();
         var pools = new HashMap<String, StockPool.Reserves>();
+        var books = new HashMap<String, Market.OrderBook>();
         lobby.market.pools().forEach((symbol, pool) -> {
             var reserves = pool.reserves();
             prices.put(symbol, reserves.cashWon() / reserves.shares());
             pools.put(symbol, reserves);
+            books.put(symbol, lobby.market.orderBook(symbol));
         });
+        var candles = lobby.market.chart().latest();
         for (var entry : lobby.clients.entrySet()) {
             var seat = lobby.patrol.seats.get(entry.getKey());
             if (seat.view == Patrol.View.MEETING) {
@@ -608,6 +622,8 @@ public class LobbySocket extends TextWebSocketHandler {
                     Map.entry("holdings", wallet.holdings()), Map.entry("headline", latest.headline()),
                     Map.entry("newsKind", latest.kind()), Map.entry("newsNumber", latest.number()),
                     Map.entry("newsBody", latest.body() == null ? "" : latest.body()),
+                    Map.entry("newsSecond", latest.second()), Map.entry("newsSymbols", latest.symbols()),
+                    Map.entry("books", books), Map.entry("candles", candles),
                     Map.entry("view", seat.view), Map.entry("beat", lobby.patrol.beat),
                     Map.entry("walking", lobby.patrol.walking),
                     Map.entry("step", lobby.patrol.step(seat)),
@@ -680,6 +696,7 @@ public class LobbySocket extends TextWebSocketHandler {
             broadcast(lobby);
             sendChatHistory(session, lobby, player);
             if (!lobby.started()) return;
+            sendChart(session, lobby);
             send(session, Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon)));
             sendDesk(session, lobby.desks.get(player));
             sendMyTrades(session, lobby, player);

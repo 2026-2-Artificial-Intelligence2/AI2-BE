@@ -33,8 +33,23 @@ public final class Market {
      * @param kind "news"(속보) 또는 "rumor"(찌라시)
      * @param symbols 관련 종목 코드. 여러 종목 뉴스면 여러 개
      * @param body 본문. 찌라시나 본문 없는 뉴스는 null
+     * @param second 발표된 판 경과 초. 차트에 표시한다.
      */
-    public record NewsItem(int number, String kind, List<String> symbols, String headline, String body) {}
+    public record NewsItem(int number, String kind, List<String> symbols, String headline, String body,
+                           long second) {}
+
+    /** 호가창의 한 칸. shares는 바로 앞 칸에서 이 가격까지 움직이려면 사고팔아야 하는 주식 수. */
+    public record BookLevel(long priceWon, long shares) {}
+
+    /**
+     * 호가창. 이 시장에는 걸어 둔 주문이 없으므로, 풀 공식으로 "이 가격까지 가려면 몇 주"를 계산한다.
+     * @param asks 매도 호가(현재가 위, 가까운 순) @param bids 매수 호가(현재가 이하, 가까운 순)
+     */
+    public record OrderBook(long priceWon, long stepWon, List<BookLevel> asks, List<BookLevel> bids) {}
+
+    private static final int BOOK_LEVELS = 5;
+    /** 호가 간격은 가격의 약 0.5%를 호가 단위에 맞춰 반올림한다. */
+    private static final double BOOK_STEP_FRACTION = 0.005;
 
     private final RandomGenerator random;
     private final Map<String, StockPool> pools = new LinkedHashMap<>();
@@ -45,6 +60,9 @@ public final class Market {
     private List<NewsCatalog.Card> deck;
     private String trueRumorSymbol;
     private final long closingTick;
+    private final PriceChart chart = new PriceChart();
+    /** 지금 판 경과 초. 뉴스 시각과 봉 기록에 쓴다. */
+    private long second;
 
     /**
      * 종목은 catalog, 뉴스와 찌라시 문구는 news에서 온다. 종목 코드(id)를 키로 쓴다.
@@ -61,10 +79,57 @@ public final class Market {
             drifts.put(stock.id(), new PriceDrift(stock.startPriceWon(), stock.volatilityPerSecond()));
         }
         deck = MarketNews.shuffledDeck(news, random);
+        for (var symbol : pools.keySet()) chart.record(symbol, 0, spotPrice(symbol), 0);
     }
 
     public StockCatalog catalog() {
         return catalog;
+    }
+
+    public PriceChart chart() {
+        return chart;
+    }
+
+    /** 실제 증권사 호가 단위(2023년 이후 코스피 기준)를 따른다. */
+    static long tickUnit(long priceWon) {
+        if (priceWon < 2_000) return 1;
+        if (priceWon < 5_000) return 5;
+        if (priceWon < 20_000) return 10;
+        if (priceWon < 50_000) return 50;
+        if (priceWon < 200_000) return 100;
+        if (priceWon < 500_000) return 500;
+        return 1_000;
+    }
+
+    public OrderBook orderBook(String symbol) {
+        var r = pools.get(symbol).reserves();
+        double shares = r.shares(), k = shares * r.cashWon();
+        long spot = r.cashWon() / r.shares();
+        long tick = tickUnit(spot);
+        long step = tick * Math.max(1, Math.round(spot * BOOK_STEP_FRACTION / tick));
+        long base = spot / step * step;
+        // 현재가에 바싹 붙어 1주도 안 되는 칸은 건너뛰고, 그만큼 바깥 칸을 더 보여준다.
+        var asks = new ArrayList<BookLevel>();
+        long previous = 0;
+        for (int i = 1; asks.size() < BOOK_LEVELS && i <= BOOK_LEVELS * 4; i++) {
+            long price = base + i * step;
+            // 풀에서 사서 가격을 price까지 올리면 풀에 남는 주식 수 = sqrt(k / price)
+            long cumulative = (long) Math.floor(shares - Math.sqrt(k / price));
+            if (asks.isEmpty() && cumulative <= 0) continue;
+            asks.add(new BookLevel(price, Math.max(0, cumulative - previous)));
+            previous = Math.max(previous, cumulative);
+        }
+        var bids = new ArrayList<BookLevel>();
+        previous = 0;
+        for (int i = 0; bids.size() < BOOK_LEVELS && i < BOOK_LEVELS * 4; i++) {
+            long price = base - i * step;
+            if (price <= 0) break;
+            long cumulative = (long) Math.floor(Math.sqrt(k / price) - shares);
+            if (bids.isEmpty() && cumulative <= 0) continue;
+            bids.add(new BookLevel(price, Math.max(0, cumulative - previous)));
+            previous = Math.max(previous, cumulative);
+        }
+        return new OrderBook(spot, step, asks, bids);
     }
 
     /** @return 종목 코드에 해당하는 풀, 없으면 null */
@@ -90,17 +155,19 @@ public final class Market {
      * @return 알림창에 들어간 항목
      */
     public NewsItem addPlayerRumor(String text) {
-        var item = new NewsItem(history.size() + 1, "rumor", List.of(), text, null);
+        var item = new NewsItem(history.size() + 1, "rumor", List.of(), text, null, second);
         history.add(item);
         return item;
     }
 
     /** 플레이어 주문 직후에 부른다. */
-    public void recordTrade(String symbol, long spotBeforeWon) {
+    public void recordTrade(String symbol, long spotBeforeWon, long quantity) {
         drifts.get(symbol).onTrade(spotBeforeWon, spotPrice(symbol));
+        chart.record(symbol, second, spotPrice(symbol), quantity);
     }
 
     public void advance(long tick) {
+        second = tick * TICK_SECONDS;
         long phase = tick % TICKS_PER_NEWS;
         if (phase == TICKS_PER_NEWS - RUMOR_LEAD_TICKS && random.nextDouble() < RUMOR_CHANCE) {
             spreadRumor();
@@ -108,6 +175,7 @@ public final class Market {
         if (phase == 0) publishNews();
         double scale = tick >= closingTick ? CLOSING_VOLATILITY : 1;
         drifts.forEach((symbol, drift) -> pools.get(symbol).moveToward(drift.advance(scale, random), CHASE_PER_TICK));
+        for (var symbol : pools.keySet()) chart.record(symbol, second, spotPrice(symbol), 0);
     }
 
     private NewsCatalog.Card upcoming() {
@@ -145,7 +213,7 @@ public final class Market {
         var phrases = changePercent > 0 ? news.rumors().good() : news.rumors().bad();
         var text = phrases.get(random.nextInt(phrases.size()))
                 .replace(NewsCatalog.NAME, catalog.stock(symbol).name());
-        history.add(new NewsItem(history.size() + 1, "rumor", List.of(symbol), text, null));
+        history.add(new NewsItem(history.size() + 1, "rumor", List.of(symbol), text, null, second));
     }
 
     private void publishNews() {
@@ -161,6 +229,6 @@ public final class Market {
         var headline = card.multiStock() ? card.headline()
                 : catalog.stock(card.stock()).name() + " · " + card.headline();
         history.add(new NewsItem(history.size() + 1, "news",
-                List.copyOf(card.moves().keySet()), headline, card.body()));
+                List.copyOf(card.moves().keySet()), headline, card.body(), second));
     }
 }
