@@ -71,6 +71,8 @@ public final class Market {
     private final List<Map<String, Object>> storyNotes = new ArrayList<>();
     /** 다음 뉴스가 나올 틱. */
     private long nextNewsTick;
+    /** 솔로 게임의 세력. 멀티 게임에서는 null. */
+    private final Whale whale;
 
     private long newsInterval() {
         return random.nextInt(NEWS_INTERVAL_MIN_SECONDS, NEWS_INTERVAL_MAX_SECONDS + 1) / TICK_SECONDS;
@@ -84,6 +86,13 @@ public final class Market {
      * @param sessionSeconds 출근부터 퇴근까지 길이. 마지막 2분이 장 마감 구간이다.
      */
     public Market(StockCatalog catalog, NewsCatalog news, RandomGenerator random, long sessionSeconds) {
+        this(catalog, news, random, sessionSeconds, false);
+    }
+
+    /** @param whales 보이지 않는 세력을 넣는다(솔로 게임). */
+    public Market(StockCatalog catalog, NewsCatalog news, RandomGenerator random, long sessionSeconds,
+                  boolean whales) {
+        this.whale = whales ? new Whale(sessionSeconds / TICK_SECONDS, random) : null;
         this.catalog = catalog;
         this.news = news;
         this.random = random;
@@ -225,6 +234,7 @@ public final class Market {
             publishNews();
             nextNewsTick += newsInterval();
         }
+        if (whale != null) moveWhale(tick);
         double scale = tick >= closingTick ? CLOSING_VOLATILITY : 1;
         // 속보가 난 종목은 그 순간 남은 차이의 NEWS_GAP만큼 바로 움직인다. 천천히 따라가면 먼저 사는 쪽이 거저 먹는다.
         drifts.forEach((symbol, drift) -> pools.get(symbol).moveToward(drift.advance(scale, random),
@@ -234,6 +244,24 @@ public final class Market {
                 tracker.advance(spotPrice(tracker.underlying)),
                 newsThisTick.contains(tracker.underlying) ? Math.max(NEWS_GAP, LEVERAGED_CHASE) : LEVERAGED_CHASE));
         for (var symbol : pools.keySet()) chart.record(symbol, second, spotPrice(symbol), 0);
+    }
+
+    /** 세력의 이번 틱 매매를 실제 풀에 넣는다. 플레이어 매매처럼 차트 거래량과 적정가에 반영된다. */
+    private void moveWhale(long tick) {
+        var candidates = drifts.keySet().stream().filter(symbol -> !newsThisTick.contains(symbol)).toList();
+        var order = whale.advance(tick, candidates, symbol -> pools.get(symbol).reserves().shares(), random);
+        whale.scheduleNext(tick, random);
+        if (order == null) return;
+        var pool = pools.get(order.symbol());
+        long before = spotPrice(order.symbol());
+        long quantity = Math.abs(order.quantity());
+        try {
+            if (order.quantity() > 0) pool.buy(quantity, Long.MAX_VALUE);
+            else pool.sell(quantity, quantity);
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        recordTrade(order.symbol(), before, quantity);
     }
 
     private NewsCatalog.Card upcoming() {

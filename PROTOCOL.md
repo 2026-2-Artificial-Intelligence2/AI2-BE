@@ -13,7 +13,8 @@
 
 ## 한 판의 흐름
 
-1. 연결 → `CREATE` 또는 `JOIN 초대코드` → `state` 수신.
+0. 연결하자마자: 보관한 프로필 열쇠가 있으면 `PROFILE LOGIN 열쇠`, 없으면 이름을 받아 `PROFILE NEW 이름`(선택). 첫 화면의 명예의 전당은 `LEADERBOARD`로 받는다.
+1. 연결 → `CREATE` 또는 `JOIN 초대코드` → `state` 수신. 솔로는 `SOLO 분` 한 번으로 방을 만들고 바로 시작한다.
 2. 대기실: `state`가 바뀔 때마다 온다. 방장은 `LENGTH 분`으로 근무 시간을 고르고 `START`.
 3. 시작: 모두에게 `state`(startedAt 채워짐) → `chart` → `catalog` → `work` → `market`이 온다.
 4. 근무 중: 매초 `market`(훈계 중이면 대신 `meeting`)이 온다. 명령의 결과는 `work`, `fill`, `orders`, `myTrades` 등으로 온다.
@@ -22,12 +23,29 @@
 
 ## 클라이언트 → 서버 명령
 
+### 프로필과 명예의 전당 (방 밖·안 언제나)
+
+로그인 대신 **비밀 열쇠** 방식이다. 처음 이름을 정하면 서버가 열쇠를 한 번 주고, 화면은 그것을 localStorage에 보관했다가 다음 접속 때마다 `PROFILE LOGIN`으로 보낸다. 서버에는 열쇠의 해시만 남는다. 프로필은 PostgreSQL에 저장된다.
+
+| 명령 | 설명 |
+|---|---|
+| `PROFILE NEW 김대리` | 이름을 정해 프로필을 만든다. 한글·영문·숫자·`_`·`-` 2~10자(공백 없음), 전체에서 겹치지 않는다(대소문자 무시). `P1` 같은 이름은 안 된다. `profile`(열쇠 포함)이 온다. |
+| `PROFILE LOGIN 열쇠` | 보관한 열쇠로 프로필을 불러온다. 성공하면 `profile`, 실패하면 `profileFailed`가 온다(열쇠를 지우고 이름을 다시 받는다). |
+| `PROFILE NAME 새이름` | 이름을 바꾼다. 이미 들어가 있는 방에서는 다음 방부터 바뀐다. |
+| `PROFILE CUSTOM {"hair":"red"}` | 꾸미기 설정을 저장한다. JSON 객체이고 2,000자 이내다. 내용(키와 값)은 프론트엔드가 정한다. |
+| `LEADERBOARD` | 솔로 명예의 전당을 받는다(`leaderboard`). 이름이 없어도 된다. |
+
+- 이름을 정하고 들어온 사람은 방에서 그 이름으로 불린다. `state.members[].label`, `youLabel`, 메신저의 `from`·`to`, `CHAT 이름 내용`의 받는 사람, `result`의 `player`가 모두 이름이다. 이름이 없으면 지금처럼 `P1`, `P2`…다.
+- 같은 프로필로 같은 방에 두 번(다른 창) 들어갈 수 없다.
+- 퇴근 정산 때 이름이 있는 사람의 결과(모드, 근무 시간, 순자산, 수익률, 파산 여부)가 저장된다.
+
 ### 방
 
 | 명령 | 언제 | 설명 |
 |---|---|---|
 | `CREATE` | 방 밖 | 방을 만들고 방장이 된다. |
 | `JOIN 123456` | 방 밖 | 초대 코드로 입장한다(시작 전에만, 최대 4명). |
+| `SOLO 10` | 방 밖, 이름 필요 | 혼자 하는 방을 만들고 바로 시작한다. 근무 시간은 5·10·15·20분 중 하나(생략하면 10분). 다시 하기(`RESTART` → `START`)도 된다. |
 | `RESUME 123456 열쇠` | 방 밖 | 새로고침이나 연결 끊김 뒤 같은 자리로 돌아간다. 열쇠는 `state.token`이다. 실패하면 `resumeFailed`가 온다. |
 | `LENGTH 15` | 대기실, 방장 | 근무 시간(분, 1~60)을 정한다. |
 | `START` | 대기실, 방장 | 2명 이상이면 시작한다. |
@@ -89,6 +107,7 @@
 
 - `token`은 **이 플레이어만 받는 재접속 열쇠**다. 탭별로 저장해 두었다가 `RESUME`에 쓴다(임시 화면은 sessionStorage에 둔다). 다른 사람에게 보여 주면 안 된다.
 - `room.startedAt`은 ISO 시각 문자열이고, 시작 전이면 `null`이다. 방장 여부는 `you === room.hostId`로 알 수 있다.
+- `solo`가 true면 솔로 방이다. 메신저·익명 찌라시가 없고(`CHAT`, `LEAK`, `MESSENGER`는 error), 아무도 들어올 수 없으며, `LENGTH`는 5·10·15·20분만 된다.
 - `members`는 입장 순서다. 메신저의 받는 사람 목록으로 쓴다. `offline`은 연결이 끊긴 플레이어 UUID다.
 
 ### `catalog` — 종목 목록과 대출 조건
@@ -234,6 +253,25 @@
 ```json
 {"type":"mic","player":"P2","level":42,"on":true}
 {"type":"mic","player":"P2","level":0,"on":false}
+```
+
+### `profile`, `profileFailed` — 프로필
+
+```json
+{"type":"profile","name":"김대리","customization":{"hair":"red"},"token":"Q2x…"}
+{"type":"profileFailed","message":"프로필을 찾을 수 없습니다. 이름을 다시 정하세요."}
+```
+
+`token`은 `PROFILE NEW` 때만 온다. 이 열쇠를 잃으면 프로필을 되찾을 수 없으니 localStorage에 보관한다. 다른 사람에게 보여 주면 안 된다.
+
+### `leaderboard` — 솔로 명예의 전당
+
+근무 시간(5·10·15·20분)별 상위 10명이다. 최고 수익률 순이고, 판 수와 평균 수익률을 함께 준다. 수익률 = (퇴근 순자산 − 시작 자금) ÷ 시작 자금 × 100.
+
+```json
+{"type":"leaderboard","boards":[
+  {"minutes":5,"entries":[{"rank":1,"name":"김대리","bestReturnPercent":12.34,"games":7,"averageReturnPercent":3.1}, …]},
+  {"minutes":10,"entries":[]}, …]}
 ```
 
 ### `notice` — 사내 소식
