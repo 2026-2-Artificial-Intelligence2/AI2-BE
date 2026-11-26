@@ -254,6 +254,12 @@ public class LobbySocket extends TextWebSocketHandler {
                 profileCommand(session, command.substring(8).strip());
                 return;
             }
+            if (command.startsWith("SIGNUP ") || command.startsWith("LOGIN ") || command.startsWith("AUTOLOGIN ")
+                    || command.equals("LOGOUT") || command.startsWith("GUEST ")) {
+                if (member != null) throw new IllegalStateException("방에서 나온 뒤에 로그인·로그아웃할 수 있습니다.");
+                accountCommand(session, command);
+                return;
+            }
             if (command.equals("LEADERBOARD")) {
                 send(session, Map.of("type", "leaderboard", "boards", results.leaderboard()));
                 return;
@@ -921,9 +927,13 @@ public class LobbySocket extends TextWebSocketHandler {
     }
 
     private void sendResult(Lobby lobby, UUID player, WebSocketSession session) throws IOException {
+        boolean recorded = lobby.profileIds.containsKey(player);
         send(session, Map.of("type", "result", "you", lobby.labels.get(player),
                 "standings", lobby.standings, "trades", lobby.trades,
-                "news", lobby.market.history(), "leaks", lobby.leaks));
+                "news", lobby.market.history(), "leaks", lobby.leaks,
+                "recorded", recorded, "recordNotice", recorded
+                        ? (lobby.solo ? "기록이 저장되고 명예의 전당에 반영됐습니다." : "기록이 저장됐습니다.")
+                        : GUEST_NOTICE));
     }
 
     private void broadcastMarket(Lobby lobby) throws IOException {
@@ -977,10 +987,8 @@ public class LobbySocket extends TextWebSocketHandler {
         }
     }
 
-    /** SOLO [분]: 혼자 하는 방을 만들고 바로 시작한다. 이름(프로필)이 있어야 명예의 전당에 오른다. */
+    /** SOLO [분]: 혼자 하는 방을 만들고 바로 시작한다. 회원만 명예의 전당에 오른다(비회원은 기록이 남지 않는다). */
     private void solo(WebSocketSession session, String minutesText) throws IOException {
-        if (session.getAttributes().get(PROFILE) == null)
-            throw new IllegalStateException("솔로 게임은 이름을 정한 뒤에 할 수 있습니다.");
         int minutes = 10;
         if (!minutesText.isEmpty()) {
             try {
@@ -1027,6 +1035,9 @@ public class LobbySocket extends TextWebSocketHandler {
             var profile = (ProfileService.View) session.getAttributes().get(PROFILE);
             if (profile != null && lobby.profileIds.containsValue(profile.id()))
                 throw new IllegalStateException("이미 이 방에 들어와 있습니다(다른 창).");
+            var wanted = profile != null ? profile.name() : (String) session.getAttributes().get(GUEST);
+            if (wanted != null && lobby.labels.values().stream().anyMatch(wanted::equalsIgnoreCase))
+                throw new IllegalStateException("방에 같은 이름이 있습니다. 닉네임을 바꿔 주세요.");
             var player = UUID.randomUUID();
             lobby.game.join(player);
             attach(session, lobby, player);
@@ -1092,46 +1103,92 @@ public class LobbySocket extends TextWebSocketHandler {
         return new Market(listed, listed == catalog ? news : news.restrictTo(listed), random, seconds, solo);
     }
 
+    /** 세션에 붙여 두는 이 기기의 자동 로그인 열쇠(로그아웃 때 지운다)와 비회원 닉네임. */
+    private static final String LOGIN_TOKEN = "loginToken", GUEST = "guest";
+
     /**
-     * PROFILE NEW 이름 / PROFILE LOGIN 열쇠 / PROFILE NAME 새이름 / PROFILE CUSTOM {json}.
-     * 방 밖에서도 안에서도 쓸 수 있다. 이름을 바꿔도 지금 들어가 있는 방의 이름은 다음 방부터 바뀐다.
+     * SIGNUP 이름 비밀번호 / LOGIN 이름 비밀번호 / AUTOLOGIN 열쇠 / LOGOUT / GUEST 닉네임. 방 밖에서만 쓴다.
+     * 회원은 기록·꾸미기가 남고 명예의 전당에 오른다. 비회원은 닉네임만 쓰고 아무것도 저장하지 않는다.
      */
+    private void accountCommand(WebSocketSession session, String command) throws IOException {
+        var attributes = session.getAttributes();
+        if (command.equals("LOGOUT")) {
+            profiles.logout((String) attributes.remove(LOGIN_TOKEN));
+            attributes.remove(PROFILE);
+            attributes.remove(GUEST);
+            send(session, Map.of("type", "loggedOut"));
+            return;
+        }
+        if (command.startsWith("GUEST ")) {
+            var name = command.substring(6).strip();
+            profiles.checkGuestName(name);
+            attributes.remove(PROFILE);
+            attributes.remove(LOGIN_TOKEN);
+            attributes.put(GUEST, name);
+            send(session, Map.of("type", "guest", "name", name, "notice", GUEST_NOTICE));
+            return;
+        }
+        if (command.startsWith("AUTOLOGIN ")) {
+            ProfileService.View found;
+            var token = command.substring(10).strip();
+            try {
+                found = profiles.resume(token);
+            } catch (IllegalArgumentException e) {
+                send(session, Map.of("type", "profileFailed", "message", e.getMessage()));
+                return;
+            }
+            signIn(session, found, token);
+            send(session, profileMessage(found, null));
+            return;
+        }
+        boolean signup = command.startsWith("SIGNUP ");
+        var rest = command.substring(signup ? 7 : 6).strip();
+        int space = rest.indexOf(' ');
+        if (space < 0) throw new IllegalArgumentException("이름과 비밀번호를 함께 보내세요.");
+        var name = rest.substring(0, space);
+        var password = rest.substring(space + 1);
+        var result = signup ? profiles.signup(name, password) : profiles.login(name, password);
+        signIn(session, result.profile(), result.token());
+        send(session, profileMessage(result.profile(), result.token()));
+    }
+
+    private static void signIn(WebSocketSession session, ProfileService.View profile, String token) {
+        session.getAttributes().remove(GUEST);
+        session.getAttributes().put(PROFILE, profile);
+        session.getAttributes().put(LOGIN_TOKEN, token);
+    }
+
+    /** 비회원에게 보여 줄 안내. */
+    private static final String GUEST_NOTICE =
+            "비회원은 판 결과와 꾸미기가 저장되지 않고 명예의 전당에도 오르지 않습니다. 기록을 남기려면 회원 가입하세요.";
+
+    /** PROFILE NAME 새이름 / PROFILE CUSTOM {json} / PROFILE PASSWORD 새비밀번호. 회원만, 방 안에서도 쓸 수 있다. */
     private void profileCommand(WebSocketSession session, String rest) throws IOException {
         int space = rest.indexOf(' ');
         var verb = space < 0 ? rest : rest.substring(0, space);
         var arg = space < 0 ? "" : rest.substring(space + 1).strip();
         var current = (ProfileService.View) session.getAttributes().get(PROFILE);
+        if (current == null) throw new IllegalStateException("회원만 할 수 있습니다. 로그인하세요.");
         switch (verb) {
-            case "NEW" -> {
-                var created = profiles.create(arg);
-                session.getAttributes().put(PROFILE, created.profile());
-                send(session, profileMessage(created.profile(), created.token()));
-            }
-            case "LOGIN" -> {
-                ProfileService.View found;
-                try {
-                    found = profiles.login(arg);
-                } catch (IllegalArgumentException e) {
-                    send(session, Map.of("type", "profileFailed", "message", e.getMessage()));
-                    return;
-                }
-                session.getAttributes().put(PROFILE, found);
-                send(session, profileMessage(found, null));
-            }
             case "NAME", "CUSTOM" -> {
-                if (current == null) throw new IllegalStateException("먼저 이름을 정하세요.");
                 var updated = verb.equals("NAME") ? profiles.rename(current.id(), arg)
                         : profiles.customize(current.id(), arg);
                 session.getAttributes().put(PROFILE, updated);
                 send(session, profileMessage(updated, null));
             }
-            default -> throw new IllegalArgumentException("PROFILE 명령은 NEW, LOGIN, NAME, CUSTOM 중 하나입니다.");
+            case "PASSWORD" -> {
+                if (space < 0) throw new IllegalArgumentException("새 비밀번호를 함께 보내세요.");
+                profiles.changePassword(current.id(), rest.substring(space + 1));
+                send(session, Map.of("type", "notice", "message", "비밀번호를 바꿨습니다."));
+            }
+            default -> throw new IllegalArgumentException("PROFILE 명령은 NAME, CUSTOM, PASSWORD 중 하나입니다.");
         }
     }
 
     private static Map<String, Object> profileMessage(ProfileService.View profile, String token) {
         var message = new LinkedHashMap<String, Object>();
         message.put("type", "profile");
+        message.put("member", true);
         message.put("name", profile.name());
         message.put("customization", profile.customization());
         if (token != null) message.put("token", token);
@@ -1150,10 +1207,11 @@ public class LobbySocket extends TextWebSocketHandler {
 
     private void attach(WebSocketSession session, Lobby lobby, UUID player) {
         lobby.clients.put(player, session);
-        // 이름을 정한 사람은 그 이름으로, 아니면 P1, P2…로 부른다(이름 규칙이 P숫자를 막아 겹치지 않는다).
+        // 회원은 회원 이름, 비회원은 닉네임, 둘 다 없으면 P1, P2…로 부른다(이름 규칙이 P숫자를 막아 겹치지 않는다).
         var profile = (ProfileService.View) session.getAttributes().get(PROFILE);
+        var guest = (String) session.getAttributes().get(GUEST);
         int number = lobby.nextLabel++;
-        lobby.labels.put(player, profile != null ? profile.name() : "P" + number);
+        lobby.labels.put(player, profile != null ? profile.name() : guest != null ? guest : "P" + number);
         if (profile != null) lobby.profileIds.put(player, profile.id());
         var bytes = new byte[18];
         random.nextBytes(bytes);
@@ -1167,7 +1225,7 @@ public class LobbySocket extends TextWebSocketHandler {
         // 메신저 받는 사람 목록과 화면 표시용. 입장 순서대로.
         var members = state.players().stream().map(id -> Map.of(
                 "label", lobby.labels.get(id), "host", id.equals(state.hostId()),
-                "online", lobby.clients.containsKey(id))).toList();
+                "online", lobby.clients.containsKey(id), "member", lobby.profileIds.containsKey(id))).toList();
         for (var entry : lobby.clients.entrySet()) {
             send(entry.getValue(), Map.ofEntries(Map.entry("type", "state"), Map.entry("code", lobby.code),
                     Map.entry("you", entry.getKey()), Map.entry("token", lobby.tokens.get(entry.getKey())),

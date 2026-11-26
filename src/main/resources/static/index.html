@@ -65,10 +65,16 @@
 <main>
   <h1>부장님 몰래</h1>
   <fieldset id="profileBox">
-    <legend>내 이름</legend>
-    <span id="profileName">이름을 정하면 솔로 게임 기록이 명예의 전당에 남습니다.</span>
-    <label><input id="nameInput" maxlength="10" placeholder="2~10자, 공백 없이"></label>
-    <button id="nameSave">이름 정하기</button>
+    <legend>회원 · 비회원</legend>
+    <p id="profileName">로그인하지 않았습니다. 회원은 기록·꾸미기가 남고 명예의 전당에 오릅니다.</p>
+    <div id="authForms">
+      <label>이름 <input id="nameInput" maxlength="10" placeholder="2~10자, 공백 없이"></label>
+      <label>비밀번호 <input id="passwordInput" type="password" maxlength="64" placeholder="6자 이상"></label>
+      <button id="loginBtn">로그인</button> <button id="signupBtn">회원 가입</button>
+      · <button id="guestBtn">비회원으로 하기 (이름만)</button>
+    </div>
+    <button id="logoutBtn" hidden>로그아웃</button>
+    <p id="guestNotice" hidden style="color:#b71c1c"></p>
   </fieldset>
   <fieldset id="entry" disabled>
     <legend>대기실</legend>
@@ -234,7 +240,7 @@
     socket.onopen = () => {
       retries = 0;
       const profileToken = localStorage.getItem(PROFILE_KEY);
-      if (profileToken) socket.send('PROFILE LOGIN ' + profileToken);
+      if (profileToken) socket.send('AUTOLOGIN ' + profileToken);
       socket.send('LEADERBOARD');
       const seat = savedSeat();
       if (seat) {
@@ -249,19 +255,24 @@
     socket.onmessage = onMessage;
     socket.onclose = onClose;
   }
-  // 프로필: 처음 이름을 정하면 받은 비밀 열쇠를 이 브라우저에 보관하고, 다음 접속 때 PROFILE LOGIN으로 보낸다.
-  const PROFILE_KEY = 'officeStockProfile';
+  // 회원: 가입·로그인하면 받은 자동 로그인 열쇠를 이 브라우저에 보관하고, 다음 접속 때 AUTOLOGIN으로 보낸다.
+  // 비회원: 닉네임만 정하고 아무것도 저장하지 않는다(기록이 남지 않는다고 알린다).
+  const PROFILE_KEY = 'officeStockLogin';
   let myName = null;
-  el('nameSave').onclick = () => {
-    const name = el('nameInput').value.trim();
-    if (!name) return;
-    socket.send((myName ? 'PROFILE NAME ' : 'PROFILE NEW ') + name);
-  };
-  function renderProfile(name) {
+  const authInput = () => [el('nameInput').value.trim(), el('passwordInput').value];
+  el('loginBtn').onclick = () => { const [n, p] = authInput(); if (n && p) socket.send('LOGIN ' + n + ' ' + p); };
+  el('signupBtn').onclick = () => { const [n, p] = authInput(); if (n && p) socket.send('SIGNUP ' + n + ' ' + p); };
+  el('guestBtn').onclick = () => { const [n] = authInput(); if (n) socket.send('GUEST ' + n); };
+  el('logoutBtn').onclick = () => socket.send('LOGOUT');
+  function renderProfile(name, kind, notice) {
     myName = name;
-    el('profileName').textContent = name ? '내 이름: ' + name : '이름을 정하면 솔로 게임 기록이 명예의 전당에 남습니다.';
-    el('nameSave').textContent = name ? '이름 바꾸기' : '이름 정하기';
-    el('nameInput').value = '';
+    el('profileName').textContent = kind === 'member' ? '회원: ' + name
+      : kind === 'guest' ? '비회원: ' + name : '로그인하지 않았습니다. 회원은 기록·꾸미기가 남고 명예의 전당에 오릅니다.';
+    el('authForms').hidden = kind === 'member';
+    el('logoutBtn').hidden = !kind;
+    el('guestNotice').hidden = kind !== 'guest';
+    el('guestNotice').textContent = notice ?? '';
+    el('passwordInput').value = '';
   }
   function renderFame(boards) {
     const box = el('fameBoards');
@@ -1303,8 +1314,14 @@
         ' · 퇴근 때 원금의 ' + (100 + loanTerms.interestPercent) + '% 상환)';
     } else if (message.type === 'profile') {
       if (message.token) localStorage.setItem(PROFILE_KEY, message.token);
-      renderProfile(message.name);
+      renderProfile(message.name, 'member');
       socket.send('LEADERBOARD');
+    } else if (message.type === 'guest') {
+      localStorage.removeItem(PROFILE_KEY);
+      renderProfile(message.name, 'guest', message.notice);
+    } else if (message.type === 'loggedOut') {
+      localStorage.removeItem(PROFILE_KEY);
+      renderProfile(null);
     } else if (message.type === 'profileFailed') {
       localStorage.removeItem(PROFILE_KEY);
       renderProfile(null);
@@ -1319,6 +1336,7 @@
       el('status').textContent = message.message;
     } else if (message.type === 'result') {
       socket.send('LEADERBOARD');
+      if (message.recordNotice) showPopup('퇴근 기록 · ' + message.recordNotice, '');
       renderResults(message);
     } else if (message.type === 'newsHistory') {
       renderHistory(message.items);
