@@ -42,6 +42,9 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final String MEMBERSHIP = "membership";
     /** 시작 전 대기실에서 연결이 끊긴 사람의 자리를 지켜 주는 시간. 넘으면 퇴장 처리한다. */
     private static final long LOBBY_GRACE_NANOS = TimeUnit.SECONDS.toNanos(60);
+    /** 방장이 고를 수 있는 근무 시간 범위(분). 화면은 5·10·15·20분을 보여준다. */
+    private static final int MIN_SESSION_MINUTES = 1;
+    private static final int MAX_SESSION_MINUTES = 60;
     /** 점심시간은 근무 시간의 40% 지점에서 시작해 10% 동안. 15분 판이면 6:00~7:30. */
     private static final double LUNCH_START_FRACTION = 0.4;
     private static final double LUNCH_LENGTH_FRACTION = 0.1;
@@ -102,7 +105,9 @@ public class LobbySocket extends TextWebSocketHandler {
         final Map<UUID, String> tokens = new HashMap<>();
         final Map<UUID, Long> offlineSince = new HashMap<>();
 
-        final long sessionTicks;
+        /** 이번 판 근무 시간. 대기실에서 방장이 고르고, 시작할 때 이 길이로 시장을 만든다. */
+        long sessionSeconds;
+        long sessionTicks;
         /** 같은 방에서 몇 번째 판인가. 기록(업무 시간 CSV, 로그)에서 판을 구분한다. */
         int round = 1;
 
@@ -134,6 +139,7 @@ public class LobbySocket extends TextWebSocketHandler {
             this.code = code;
             this.game = new GameRoom(host);
             this.market = market;
+            this.sessionSeconds = sessionSeconds;
             this.sessionTicks = sessionSeconds / Market.TICK_SECONDS;
         }
 
@@ -184,9 +190,13 @@ public class LobbySocket extends TextWebSocketHandler {
                     if (command.equals("RESTART")) {
                         if (!lobby.finished) throw new IllegalStateException("퇴근한 뒤에 다시 할 수 있습니다.");
                         lobby.game.reset(member.player());
-                        lobby.nextRound(newMarket());
+                        lobby.nextRound(newMarket(lobby.sessionSeconds));
                         log.info("방 {} {}번째 판 대기", lobby.code, lobby.round);
                         broadcast(lobby);
+                        return;
+                    }
+                    if (command.startsWith("LENGTH ")) {
+                        setLength(lobby, member.player(), command.substring(7).strip());
                         return;
                     }
                     if (lobby.finished) {
@@ -242,8 +252,28 @@ public class LobbySocket extends TextWebSocketHandler {
         }
     }
 
+    /** 대기실에서 방장이 근무 시간(분)을 고른다. 점심시간과 장 마감 구간은 이 길이에 비례한다. */
+    private void setLength(Lobby lobby, UUID requester, String minutesText) throws IOException {
+        if (!requester.equals(lobby.game.snapshot().hostId()))
+            throw new IllegalStateException("방장만 근무 시간을 정할 수 있습니다.");
+        if (lobby.started()) throw new IllegalStateException("시작한 뒤에는 근무 시간을 바꿀 수 없습니다.");
+        int minutes;
+        try {
+            minutes = Integer.parseInt(minutesText);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("근무 시간은 분 단위 정수여야 합니다.");
+        }
+        if (minutes < MIN_SESSION_MINUTES || minutes > MAX_SESSION_MINUTES)
+            throw new IllegalArgumentException("근무 시간은 " + MIN_SESSION_MINUTES + "~" + MAX_SESSION_MINUTES + "분 사이로 정하세요.");
+        lobby.sessionSeconds = minutes * 60L;
+        broadcast(lobby);
+    }
+
     private void start(Lobby lobby, UUID requester) throws IOException {
+        if (lobby.started()) return;
         lobby.game.start(requester, Instant.now());
+        lobby.sessionTicks = lobby.sessionSeconds / Market.TICK_SECONDS;
+        lobby.market = newMarket(lobby.sessionSeconds);
         lobby.lunchStartTick = Math.round(lobby.sessionTicks * LUNCH_START_FRACTION);
         lobby.lunchEndTick = lobby.lunchStartTick + Math.round(lobby.sessionTicks * LUNCH_LENGTH_FRACTION);
         boolean early = random.nextDouble() < lunchEarlyReturnChance;
@@ -451,7 +481,7 @@ public class LobbySocket extends TextWebSocketHandler {
         var host = UUID.randomUUID();
         while (true) {
             var code = Integer.toString(100_000 + random.nextInt(900_000));
-            var lobby = new Lobby(code, host, newMarket(), sessionSeconds);
+            var lobby = new Lobby(code, host, newMarket(sessionSeconds), sessionSeconds);
             lobby.lock.lock();
             try {
                 if (rooms.putIfAbsent(code, lobby) != null) continue;
@@ -521,8 +551,8 @@ public class LobbySocket extends TextWebSocketHandler {
         }
     }
 
-    private Market newMarket() {
-        return new Market(catalog, news, new SplittableRandom(), sessionSeconds);
+    private Market newMarket(long seconds) {
+        return new Market(catalog, news, new SplittableRandom(), seconds);
     }
 
     private void attach(WebSocketSession session, Lobby lobby, UUID player) {
@@ -539,7 +569,8 @@ public class LobbySocket extends TextWebSocketHandler {
         for (var entry : lobby.clients.entrySet()) {
             send(entry.getValue(), Map.of("type", "state", "code", lobby.code,
                     "you", entry.getKey(), "token", lobby.tokens.get(entry.getKey()),
-                    "room", state, "offline", offline, "round", lobby.round));
+                    "room", state, "offline", offline, "round", lobby.round,
+                    "sessionSeconds", lobby.sessionSeconds));
         }
     }
 
