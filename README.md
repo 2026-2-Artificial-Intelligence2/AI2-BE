@@ -66,6 +66,34 @@ ipconfig getifaddr en0
 
 화면과 WebSocket이 같은 주소로 나가므로 따로 설정할 것은 없다. 터널을 닫거나 컴퓨터가 잠들면 접속이 끊긴다.
 
+#### 따로 만든 프론트엔드(office-stock-FE)로 플레이하기
+
+프론트엔드는 자기 주소의 `/ws/lobby`를 백엔드로 넘겨주므로(Vite 프록시), **프론트엔드 주소 하나만 터널로 열면** 게임 연결까지 된다. 터미널 세 개에서 차례로 실행한다.
+
+1. 백엔드 (이 폴더)
+
+   ```bash
+   ./gradlew bootRun
+   ```
+
+2. 프론트엔드 빌드와 실행 (office-stock-FE 폴더). 개발 서버(`npm run dev`)도 되지만, 터널 너머에서는 빌드한 화면이 훨씬 빨리 뜬다.
+
+   ```bash
+   npm run build && npm run preview
+   ```
+
+3. 터널. 나온 `https://….trycloudflare.com` 주소를 친구들에게 보낸다. 개발 서버로 열었다면 4173 대신 5173을 쓴다.
+
+   ```bash
+   cloudflared tunnel --url http://localhost:4173
+   ```
+
+이를 위해 두 가지를 설정해 두었다.
+- 프론트엔드 `vite.config.js`: 개발 서버와 preview 모두 `allowedHosts`에 `.trycloudflare.com`을 넣었다(Vite는 모르는 주소로 들어온 접속을 403으로 막는다).
+- 백엔드 `game.allowed-origins`: `https://*.trycloudflare.com`을 넣었다. 그래서 터널 주소의 화면에서 온 게임 연결을 받아 준다. 대신 서버가 켜져 있는 동안에는 다른 trycloudflare 주소의 페이지도 연결할 수 있다. 터널을 안 쓸 때 막으려면 이 항목을 지운다.
+
+백엔드가 8080이 아니면 프론트엔드를 `OFFICE_STOCK_BACKEND=http://127.0.0.1:포트 npm run preview`처럼 띄운다. 프론트 코드나 백엔드를 고치면 각각 다시 빌드·실행해야 반영된다.
+
 ### 클라우드에 올리기
 
 `Dockerfile`이 들어 있다. Render, Fly.io처럼 Docker 이미지를 받는 곳에 그대로 올릴 수 있다. 포트는 `PORT` 환경 변수로 받는다(없으면 8080).
