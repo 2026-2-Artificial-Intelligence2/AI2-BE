@@ -11,12 +11,12 @@ public final class Market {
     /** 시세 갱신 간격. 아래 시간 상수와 PriceDrift의 비율은 모두 초 단위라 이 값만 바꾸면 된다. */
     public static final int TICK_SECONDS = 1;
     public static final long TICK_MILLIS = TICK_SECONDS * 1_000L;
-    private static final int NEWS_INTERVAL_SECONDS = 20;
+    /** 뉴스 사이 간격(초). 매번 이 범위에서 무작위로 정해 다음 뉴스 시각을 외울 수 없게 한다. */
+    private static final int NEWS_INTERVAL_MIN_SECONDS = 25, NEWS_INTERVAL_MAX_SECONDS = 40;
     /** 찌라시는 뉴스 몇 초 전에 도는가. */
     private static final int RUMOR_LEAD_SECONDS = 8;
     /** 퇴근 전 마지막 2분은 흔들림이 커진다. */
     private static final int CLOSING_WINDOW_SECONDS = 120;
-    static final int TICKS_PER_NEWS = NEWS_INTERVAL_SECONDS / TICK_SECONDS;
     static final int RUMOR_LEAD_TICKS = RUMOR_LEAD_SECONDS / TICK_SECONDS;
     /** 풀 가격이 목표가와의 차이를 1초에 좁히는 비율(2초에 20%와 같다). */
     private static final double CHASE_PER_TICK = 1 - Math.pow(Math.sqrt(0.8), TICK_SECONDS);
@@ -69,6 +69,13 @@ public final class Market {
     private final PriceChart chart = new PriceChart();
     /** 출근 전 흐름의 "지난 소식"(차트 표시용). */
     private final List<Map<String, Object>> storyNotes = new ArrayList<>();
+    /** 다음 뉴스가 나올 틱. */
+    private long nextNewsTick;
+
+    private long newsInterval() {
+        return random.nextInt(NEWS_INTERVAL_MIN_SECONDS, NEWS_INTERVAL_MAX_SECONDS + 1) / TICK_SECONDS;
+    }
+
     /** 지금 판 경과 초. 뉴스 시각과 봉 기록에 쓴다. */
     private long second;
 
@@ -92,6 +99,7 @@ public final class Market {
             }
         }
         deck = MarketNews.shuffledDeck(news, random);
+        nextNewsTick = newsInterval();
         for (var stock : catalog.stocks()) {
             if (stock.story().isEmpty()) continue;
             var story = PriceStory.generate(stock, random);
@@ -209,12 +217,14 @@ public final class Market {
 
     public void advance(long tick) {
         second = tick * TICK_SECONDS;
-        long phase = tick % TICKS_PER_NEWS;
-        if (phase == TICKS_PER_NEWS - RUMOR_LEAD_TICKS && random.nextDouble() < RUMOR_CHANCE) {
+        if (tick == nextNewsTick - RUMOR_LEAD_TICKS && random.nextDouble() < RUMOR_CHANCE) {
             spreadRumor();
         }
         newsThisTick.clear();
-        if (phase == 0) publishNews();
+        if (tick == nextNewsTick) {
+            publishNews();
+            nextNewsTick += newsInterval();
+        }
         double scale = tick >= closingTick ? CLOSING_VOLATILITY : 1;
         // 속보가 난 종목은 그 순간 남은 차이의 NEWS_GAP만큼 바로 움직인다. 천천히 따라가면 먼저 사는 쪽이 거저 먹는다.
         drifts.forEach((symbol, drift) -> pools.get(symbol).moveToward(drift.advance(scale, random),

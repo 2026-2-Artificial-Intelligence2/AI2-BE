@@ -37,6 +37,65 @@
       ]
     },
     {
+      "id": "SKY",
+      "name": "하늘항공",
+      "startPriceWon": 15000,
+      "poolShares": 6667,
+      "volatilityPerSecond": 0.012,
+      "story": [
+        {"candles": 60, "changePercent": 5, "volatility": 0.007, "note": "여행 수요 회복 기대"},
+        {"candles": 50, "changePercent": -6, "volatility": 0.008, "note": "유가 상승 부담"},
+        {"candles": 70, "changePercent": 2, "volatility": 0.006, "note": "관망세"}
+      ]
+    },
+    {
+      "id": "PHARM",
+      "name": "온누리제약",
+      "startPriceWon": 48000,
+      "poolShares": 2083,
+      "volatilityPerSecond": 0.016,
+      "story": [
+        {"candles": 40, "changePercent": 12, "volatility": 0.012, "note": "신약 임상 기대감 급등"},
+        {"candles": 40, "changePercent": -9, "volatility": 0.013, "note": "발표 앞두고 차익 실현"},
+        {"candles": 100, "changePercent": 1, "volatility": 0.009, "note": "관망세"}
+      ]
+    },
+    {
+      "id": "CHIP",
+      "name": "반짝반도체",
+      "startPriceWon": 62000,
+      "poolShares": 1613,
+      "volatilityPerSecond": 0.014,
+      "story": [
+        {"candles": 90, "changePercent": 8, "volatility": 0.009, "note": "AI 반도체 수요 기대"},
+        {"candles": 40, "changePercent": -4, "volatility": 0.01, "note": "단기 급등 부담"},
+        {"candles": 50, "changePercent": 2, "volatility": 0.008, "note": "외국인 매수 유입"}
+      ]
+    },
+    {
+      "id": "BANK",
+      "name": "든든은행",
+      "startPriceWon": 9000,
+      "poolShares": 11111,
+      "volatilityPerSecond": 0.005,
+      "story": [
+        {"candles": 90, "changePercent": 1, "volatility": 0.0025, "note": "배당 기대"},
+        {"candles": 90, "changePercent": -1, "volatility": 0.0025, "note": "금리 동결 전망"}
+      ]
+    },
+    {
+      "id": "DLVR",
+      "name": "배달번개",
+      "startPriceWon": 21000,
+      "poolShares": 4762,
+      "volatilityPerSecond": 0.013,
+      "story": [
+        {"candles": 50, "changePercent": -7, "volatility": 0.009, "note": "수수료 규제 우려"},
+        {"candles": 70, "changePercent": 6, "volatility": 0.009, "note": "주문량 회복 소식"},
+        {"candles": 60, "changePercent": 1, "volatility": 0.007, "note": "관망세"}
+      ]
+    },
+    {
       "id": "MOON3X",
       "name": "달나라로봇 3X",
       "startPriceWon": 10000,

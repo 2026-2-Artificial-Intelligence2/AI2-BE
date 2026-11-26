@@ -95,6 +95,8 @@
 ```json
 {"type":"catalog",
  "stocks":[{"id":"MINT","name":"민트식품"},{"id":"MOON","name":"달나라로봇"},{"id":"OURS","name":"우리회사"},
+           {"id":"SKY","name":"하늘항공"},{"id":"PHARM","name":"온누리제약"},{"id":"CHIP","name":"반짝반도체"},
+           {"id":"BANK","name":"든든은행"},{"id":"DLVR","name":"배달번개"},
            {"id":"MOON3X","name":"달나라로봇 3X","underlying":"MOON","leverage":"3.0"},
            {"id":"OURSINV","name":"우리회사 인버스","underlying":"OURS","leverage":"-1.0"}],
  "loan":{"interestPercent":20,"maxWon":10000000},
