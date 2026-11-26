@@ -43,6 +43,8 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final String MEMBERSHIP = "membership";
     /** 시작 전 대기실에서 연결이 끊긴 사람의 자리를 지켜 주는 시간. 넘으면 퇴장 처리한다. */
     private static final long LOBBY_GRACE_NANOS = TimeUnit.SECONDS.toNanos(60);
+    /** 한 사람이 걸어 둘 수 있는 지정가 주문 수. */
+    private static final int MAX_OPEN_ORDERS = 5;
     /** 메신저: 메시지 길이, 연속 전송 간격, 방에 남기는 기록 수, 익명 찌라시 길이. */
     private static final int MAX_CHAT_LENGTH = 200;
     private static final long CHAT_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(400);
@@ -137,6 +139,9 @@ public class LobbySocket extends TextWebSocketHandler {
 
         // 아래는 한 판의 상태. 같은 방에서 다시 하면 nextRound()로 새로 만든다.
         final Map<UUID, WorkDesk> desks = new HashMap<>();
+        /** 걸려 있는 지정가 주문(먼저 건 순서). */
+        final List<PendingOrder> orders = new ArrayList<>();
+        int nextOrderId = 1;
         /** 이번 판에 익명 찌라시를 뿌린 사람과 내용. 퇴근 결과에서 공개한다. */
         final List<Leak> leaks = new ArrayList<>();
         Market market;
@@ -171,6 +176,7 @@ public class LobbySocket extends TextWebSocketHandler {
             round++;
             desks.clear();
             leaks.clear();
+            orders.clear();
             market = freshMarket;
             patrol = new Patrol();
             trades.clear();
@@ -196,6 +202,10 @@ public class LobbySocket extends TextWebSocketHandler {
     private record ChatMessage(int id, long second, String from, String to, String text) {}
 
     private record Leak(String player, int newsNumber, String text) {}
+
+    /** 걸어 둔 지정가 주문. reservedWon은 매수 주문에 묶은 현금(가격×수량). */
+    private record PendingOrder(int id, UUID player, String symbol, boolean buy, long limitWon, long quantity,
+                                long reservedWon, long placedSecond) {}
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message)
@@ -268,8 +278,17 @@ public class LobbySocket extends TextWebSocketHandler {
                         submitWork(session, member, command);
                         return;
                     }
-                    if (command.startsWith("BUY ") || command.startsWith("SELL ")) {
+                    if (command.startsWith("BUY ") || command.startsWith("SELL ")
+                            || command.startsWith("BUYWON ") || command.startsWith("SELLWON ")) {
                         trade(session, member, command);
+                        return;
+                    }
+                    if (command.startsWith("LIMIT ")) {
+                        placeLimit(lobby, member.player(), command);
+                        return;
+                    }
+                    if (command.startsWith("CANCEL ")) {
+                        cancelOrder(lobby, member.player(), command.substring(7).strip());
                         return;
                     }
                     if (!command.equals("START")) {
@@ -474,6 +493,10 @@ public class LobbySocket extends TextWebSocketHandler {
         send(session, Map.of("type", "work", "desk", desk.state()));
     }
 
+    /**
+     * 시장가 주문. "BUY 종목 수량"·"SELL 종목 수량"은 수량으로, "BUYWON 종목 금액"은 그 금액 안에서 최대한,
+     * "SELLWON 종목 금액"은 그 금액 이상을 받는 데 필요한 만큼 판다. 주식 창에서만 할 수 있다.
+     */
     private void trade(WebSocketSession session, Membership member, String command)
             throws IOException {
         var lobby = member.lobby();
@@ -486,14 +509,29 @@ public class LobbySocket extends TextWebSocketHandler {
         var symbol = fields[1];
         var pool = lobby.market.pool(symbol);
         if (pool == null) throw new IllegalArgumentException("등록되지 않은 종목입니다.");
-
-        long quantity;
-        try {
-            quantity = Long.parseLong(fields[2]);
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("수량은 정수여야 합니다.");
+        long number = parsePositive(fields[2], "수량과 금액은 1 이상의 정수여야 합니다.");
+        boolean buying = fields[0].startsWith("BUY");
+        long quantity = number;
+        if (fields[0].endsWith("WON")) {
+            var wallet = desk.wallet();
+            if (buying) {
+                quantity = pool.maxBuyable(Math.min(number, wallet.balance().cashWon()));
+                if (quantity <= 0) throw new IllegalArgumentException("그 금액으로는 1주도 살 수 없습니다.");
+            } else {
+                long sellable = wallet.sellable(symbol);
+                if (sellable <= 0) throw new IllegalArgumentException("팔 수 있는 주식이 없습니다.");
+                quantity = pool.minSellFor(number, sellable);
+            }
         }
-        boolean buying = fields[0].equals("BUY");
+        execute(lobby, member.player(), symbol, buying, quantity, false);
+        broadcastMarket(lobby);
+    }
+
+    /** 체결 하나를 처리하고 본인에게 알린다. 화면 확인은 부르는 쪽이 한다(지정가는 안 보고 있어도 체결된다). */
+    private long execute(Lobby lobby, UUID player, String symbol, boolean buying, long quantity, boolean limit)
+            throws IOException {
+        var desk = lobby.desks.get(player);
+        var pool = lobby.market.pool(symbol);
         long amount;
         long spotBefore = lobby.market.spotPrice(symbol);
         try {
@@ -503,13 +541,129 @@ public class LobbySocket extends TextWebSocketHandler {
             throw new IllegalArgumentException("처리할 수 있는 주문 범위를 초과했습니다.");
         }
         lobby.market.recordTrade(symbol, spotBefore, quantity);
+        String side = (limit ? "지정가 " : "") + (buying ? "매수" : "매도");
         lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS,
-                lobby.labels.get(member.player()), symbol, buying ? "매수" : "매도", quantity, amount));
-        sendDesk(session, desk);
-        send(session, Map.of("type", "fill", "symbol", symbol, "quantity", quantity,
-                "side", buying ? "매수" : "매도", "amount", amount));
-        sendMyTrades(session, lobby, member.player());
+                lobby.labels.get(player), symbol, side, quantity, amount));
+        var client = lobby.clients.get(player);
+        if (client != null) {
+            sendDesk(client, desk);
+            send(client, Map.of("type", "fill", "symbol", symbol, "quantity", quantity,
+                    "side", side, "amount", amount, "limit", limit));
+            sendMyTrades(client, lobby, player);
+        }
+        return amount;
+    }
+
+    private static long parsePositive(String text, String message) {
+        try {
+            long value = Long.parseLong(text);
+            if (value <= 0) throw new IllegalArgumentException(message);
+            return value;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+
+    /**
+     * 지정가 주문 걸기: "LIMIT BUY 종목 가격 수량" / "LIMIT SELL 종목 가격 수량". 주식 창에서만 걸 수 있다.
+     * 매수는 가격×수량만큼 현금을, 매도는 그 주식을 묶는다. 평균 체결가가 가격 이하(매수)·이상(매도)이 되는
+     * 순간 한 번에 전부 체결된다(일부 체결 없음). 걸어 둔 뒤에는 안 보고 있어도 체결된다.
+     */
+    private void placeLimit(Lobby lobby, UUID player, String command) throws IOException {
+        var desk = lobby.desks.get(player);
+        if (desk == null) throw new IllegalStateException("게임 시작 후 주문하세요.");
+        if (lobby.patrol.seats.get(player).view != Patrol.View.MARKET)
+            throw new IllegalStateException("지정가 주문은 주식 창에서 걸 수 있습니다.");
+        var fields = command.split("\\s+");
+        if (fields.length != 5 || !(fields[1].equals("BUY") || fields[1].equals("SELL")))
+            throw new IllegalArgumentException("지정가 주문 형식을 확인하세요.");
+        boolean buying = fields[1].equals("BUY");
+        var symbol = fields[2];
+        var pool = lobby.market.pool(symbol);
+        if (pool == null) throw new IllegalArgumentException("등록되지 않은 종목입니다.");
+        long price = parsePositive(fields[3], "가격은 1원 이상의 정수여야 합니다.");
+        long quantity = parsePositive(fields[4], "수량은 1주 이상의 정수여야 합니다.");
+        if (quantity >= pool.reserves().shares()) throw new IllegalArgumentException("주문할 수 없는 수량입니다.");
+        long open = lobby.orders.stream().filter(o -> o.player().equals(player)).count();
+        if (open >= MAX_OPEN_ORDERS)
+            throw new IllegalStateException("지정가 주문은 한 사람당 " + MAX_OPEN_ORDERS + "건까지 걸 수 있습니다.");
+        long reserved = 0;
+        try {
+            if (buying) {
+                reserved = Math.multiplyExact(price, quantity);
+                desk.wallet().reserveCash(reserved);
+            } else {
+                Math.multiplyExact(price, quantity); // 체결 확인 때 가격×수량을 계산하므로 미리 범위를 본다
+                desk.wallet().lockShares(symbol, quantity);
+            }
+        } catch (ArithmeticException e) {
+            throw new IllegalArgumentException("처리할 수 있는 주문 범위를 초과했습니다.");
+        }
+        lobby.orders.add(new PendingOrder(lobby.nextOrderId++, player, symbol, buying, price, quantity, reserved,
+                lobby.tick * Market.TICK_SECONDS));
+        sendDesk(lobby.clients.get(player), desk);
+        sendOrders(lobby, player);
+        processOrders(lobby);
         broadcastMarket(lobby);
+    }
+
+    private void cancelOrder(Lobby lobby, UUID player, String idText) throws IOException {
+        if (lobby.patrol.seats.get(player).view != Patrol.View.MARKET)
+            throw new IllegalStateException("지정가 주문은 주식 창에서 취소할 수 있습니다.");
+        long id = parsePositive(idText, "주문 번호를 확인하세요.");
+        var order = lobby.orders.stream().filter(o -> o.id() == id && o.player().equals(player)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("취소할 주문이 없습니다."));
+        release(lobby, order);
+        lobby.orders.remove(order);
+        sendDesk(lobby.clients.get(player), lobby.desks.get(player));
+        sendOrders(lobby, player);
+    }
+
+    /** 묶어 둔 현금·주식을 돌려준다. */
+    private static void release(Lobby lobby, PendingOrder order) {
+        var desk = lobby.desks.get(order.player());
+        if (desk == null) return;
+        if (order.buy()) desk.wallet().releaseCash(order.reservedWon());
+        else desk.wallet().unlockShares(order.symbol(), order.quantity());
+    }
+
+    /** 걸린 지정가 주문을 먼저 건 순서대로 확인해, 조건이 맞으면 체결한다. 매초와 주문을 건 직후에 부른다. */
+    private void processOrders(Lobby lobby) throws IOException {
+        for (var order : List.copyOf(lobby.orders)) {
+            var pool = lobby.market.pool(order.symbol());
+            boolean ready = order.buy()
+                    ? pool.quoteBuy(order.quantity()) <= order.limitWon() * order.quantity()
+                    : pool.quoteSell(order.quantity()) >= order.limitWon() * order.quantity();
+            if (!ready) continue;
+            lobby.orders.remove(order);
+            release(lobby, order);
+            try {
+                execute(lobby, order.player(), order.symbol(), order.buy(), order.quantity(), true);
+            } catch (IllegalArgumentException e) {
+                log.warn("방 {} 지정가 주문 {} 체결 실패: {}", lobby.logName(), order.id(), e.getMessage());
+            }
+            sendOrders(lobby, order.player());
+        }
+    }
+
+    /** 퇴근이나 퇴장 때 걸린 주문을 모두 취소하고 묶인 것을 돌려준다. */
+    private static void cancelAll(Lobby lobby, UUID playerOrNull) {
+        for (var order : List.copyOf(lobby.orders)) {
+            if (playerOrNull != null && !order.player().equals(playerOrNull)) continue;
+            release(lobby, order);
+            lobby.orders.remove(order);
+        }
+    }
+
+    private void sendOrders(Lobby lobby, UUID player) throws IOException {
+        var session = lobby.clients.get(player);
+        if (session == null) return;
+        send(session, Map.of("type", "orders", "orders", lobby.orders.stream()
+                .filter(o -> o.player().equals(player))
+                .map(o -> Map.of("id", o.id(), "symbol", o.symbol(), "side", o.buy() ? "매수" : "매도",
+                        "limitWon", o.limitWon(), "quantity", o.quantity(), "reservedWon", o.reservedWon(),
+                        "placedSecond", o.placedSecond()))
+                .toList()));
     }
 
     /** 차트 전체(종목별 봉)와 지금까지의 뉴스 시각. 게임 시작·재접속 때 보내고, 이후로는 시세 메시지로 이어 붙인다. */
@@ -537,6 +691,7 @@ public class LobbySocket extends TextWebSocketHandler {
                     if (rooms.get(lobby.code) != lobby) return;
                     advanceMarket(lobby);
                     try {
+                        processOrders(lobby);
                         if (lobby.tick >= lobby.sessionTicks) {
                             finish(lobby);
                             return;
@@ -576,6 +731,8 @@ public class LobbySocket extends TextWebSocketHandler {
     /** 퇴근: 이후 모든 조작을 막고, 순위와 이번 판의 매매 기록을 모두에게 공개한다. */
     private void finish(Lobby lobby) throws IOException {
         lobby.finished = true;
+        // 체결되지 않은 지정가 주문은 퇴근과 함께 취소하고 묶인 현금·주식을 돌려준 뒤 정산한다.
+        cancelAll(lobby, null);
         var desksByPlayer = new LinkedHashMap<String, WorkDesk>();
         for (var player : lobby.game.snapshot().players()) {
             var desk = lobby.desks.get(player);
@@ -700,6 +857,7 @@ public class LobbySocket extends TextWebSocketHandler {
             send(session, Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon)));
             sendDesk(session, lobby.desks.get(player));
             sendMyTrades(session, lobby, player);
+            sendOrders(lobby, player);
             if (lobby.finished) {
                 sendResult(lobby, player, session);
             } else {
@@ -780,6 +938,7 @@ public class LobbySocket extends TextWebSocketHandler {
         lobby.clients.remove(player);
         lobby.tokens.remove(player);
         lobby.offlineSince.remove(player);
+        cancelAll(lobby, player);
         var leftDesk = lobby.desks.remove(player);
         if (leftDesk != null && !lobby.finished) {
             playtest.summary(lobby.logName(), lobby.labels.get(player), leftDesk.timings());

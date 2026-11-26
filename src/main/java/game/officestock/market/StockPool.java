@@ -73,6 +73,33 @@ public final class StockPool {
         return cashWon - cashRequiredFor(Math.addExact(shares, quantity));
     }
 
+    /** 풀을 바꾸지 않고, 지금 quantity주를 사면 낼 금액을 계산한다. 살 수 없는 수량이면 Long.MAX_VALUE. */
+    public long quoteBuy(long quantity) {
+        if (quantity <= 0) return 0;
+        if (quantity >= shares) return Long.MAX_VALUE;
+        return cashRequiredFor(shares - quantity) - cashWon;
+    }
+
+    /** budgetWon 안에서 살 수 있는 최대 수량(0이면 1주도 못 산다). */
+    public long maxBuyable(long budgetWon) {
+        long lo = 0, hi = shares - 1;
+        while (lo < hi) {
+            long mid = (lo + hi + 1) >>> 1;
+            if (quoteBuy(mid) <= budgetWon) lo = mid; else hi = mid - 1;
+        }
+        return lo;
+    }
+
+    /** 적어도 targetWon을 받으려면 팔아야 하는 최소 수량(limit 안에서 안 되면 limit을 돌려준다). */
+    public long minSellFor(long targetWon, long limit) {
+        long lo = 1, hi = Math.max(1, limit);
+        while (lo < hi) {
+            long mid = (lo + hi) >>> 1;
+            if (quoteSell(mid) >= targetWon) hi = mid; else lo = mid + 1;
+        }
+        return lo;
+    }
+
     private long cashRequiredFor(long nextShares) {
         var product = BigInteger.valueOf(shares).multiply(BigInteger.valueOf(cashWon));
         var divisor = BigInteger.valueOf(nextShares);

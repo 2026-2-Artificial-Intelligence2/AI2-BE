@@ -17,6 +17,10 @@ public final class PlayerWallet {
     private long realizedWon;
     /** 비상 대출을 받았으면 퇴근 때 갚을 원리금. 0이면 아직 안 받았다. 한 판에 한 번. */
     private long loanRepayWon;
+    /** 걸어 둔 지정가 매수 주문에 묶인 현금(쓸 수 있는 현금 cashWon과 따로 센다). */
+    private long reservedWon;
+    /** 걸어 둔 지정가 매도 주문에 묶인 주식(보유량에는 포함되지만 따로 팔 수 없다). */
+    private final Map<String, Long> lockedShares = new HashMap<>();
 
     public Map<String, Long> holdings() {
         return Map.copyOf(holdings);
@@ -32,8 +36,37 @@ public final class PlayerWallet {
         return cost;
     }
 
+    /** 지정가 매도로 묶이지 않아 지금 팔 수 있는 수량. */
+    public long sellable(String symbol) {
+        return holdings.getOrDefault(symbol, 0L) - lockedShares.getOrDefault(symbol, 0L);
+    }
+
+    public void reserveCash(long amountWon) {
+        if (amountWon <= 0) throw new IllegalArgumentException("주문 금액을 확인하세요.");
+        if (amountWon > cashWon) throw new IllegalArgumentException("주문에 묶을 현금이 부족합니다.");
+        cashWon -= amountWon;
+        reservedWon += amountWon;
+    }
+
+    public void releaseCash(long amountWon) {
+        reservedWon -= amountWon;
+        cashWon += amountWon;
+    }
+
+    public void lockShares(String symbol, long quantity) {
+        if (quantity <= 0 || quantity > sellable(symbol))
+            throw new IllegalArgumentException("주문에 묶을 주식이 부족합니다(지정가 매도에 이미 묶인 주식은 뺍니다).");
+        lockedShares.merge(symbol, quantity, Long::sum);
+    }
+
+    public void unlockShares(String symbol, long quantity) {
+        lockedShares.merge(symbol, -quantity, Long::sum);
+    }
+
     public long sell(String symbol, StockPool pool, long quantity) {
         long owned = holdings.getOrDefault(symbol, 0L);
+        if (quantity > sellable(symbol))
+            throw new IllegalArgumentException("지정가 매도에 묶인 주식은 따로 팔 수 없습니다.");
         long proceeds = pool.sell(quantity, owned, Long.MAX_VALUE - cashWon);
         cashWon += proceeds;
         holdings.put(symbol, owned - quantity);
@@ -81,10 +114,12 @@ public final class PlayerWallet {
         return loanRepayWon;
     }
 
-    public record Balance(long cashWon, long workIncomeWon, long completedTasks, long loanRepayWon) {}
+    /** @param cashWon 지금 쓸 수 있는 현금 @param reservedWon 지정가 매수 주문에 묶인 현금 */
+    public record Balance(long cashWon, long workIncomeWon, long completedTasks, long loanRepayWon,
+                          long reservedWon) {}
 
     public Balance balance() {
-        return new Balance(cashWon, workIncomeWon, completedTasks, loanRepayWon);
+        return new Balance(cashWon, workIncomeWon, completedTasks, loanRepayWon, reservedWon);
     }
 
     /**

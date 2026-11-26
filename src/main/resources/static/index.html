@@ -106,10 +106,20 @@
     <p id="detailNote">호가 잔량은 그 가격까지 움직이려면 사고팔아야 하는 주식 수입니다(이 시장은 걸어 둔 주문 없이 풀 공식으로 움직입니다). 차트는 10초 봉이고, 세로선은 속보(주황)와 찌라시(회색)입니다.</p>
     <form id="order">
       <label>종목 <select id="symbol"></select></label>
-      <label>수량 <input id="quantity" type="number" min="1" step="1" value="1" required></label>
+      <label>주문 <select id="orderMode">
+        <option value="qty">수량(시장가)</option>
+        <option value="won">금액(시장가)</option>
+        <option value="limit">지정가</option>
+      </select></label>
+      <label id="priceBox" hidden>가격 <input id="limitPrice" type="number" min="1" step="1"></label>
+      <label><span id="quantityLabel">수량</span> <input id="quantity" type="number" min="1" step="1" value="1" required></label>
       <button value="BUY">매수</button>
       <button value="SELL">매도</button>
     </form>
+    <div id="ordersBox" hidden>
+      <h3>걸어 둔 지정가 주문</h3>
+      <ul id="openOrders"></ul>
+    </div>
     <p id="estimate" aria-live="polite"></p>
     <p id="fill" role="status"></p>
     <details id="myTradesBox">
@@ -343,8 +353,42 @@
     event.preventDefault();
     const side = event.submitter?.value;
     if (!side || socket.readyState !== WebSocket.OPEN) return;
-    socket.send([side, el('symbol').value, el('quantity').value].join(' '));
+    const mode = el('orderMode').value, symbol = el('symbol').value, n = el('quantity').value;
+    if (mode === 'qty') socket.send([side, symbol, n].join(' '));
+    else if (mode === 'won') socket.send([side + 'WON', symbol, n].join(' '));
+    else socket.send(['LIMIT', side, symbol, el('limitPrice').value, n].join(' '));
   };
+  // 주문 방식: 수량·금액은 바로 체결되는 시장가, 지정가는 걸어 두고 조건이 맞으면 체결된다.
+  function setOrderMode(mode) {
+    el('orderMode').value = mode;
+    el('priceBox').hidden = mode !== 'limit';
+    el('quantityLabel').textContent = mode === 'won' ? '금액(원)' : '수량(주)';
+    renderEstimate();
+  }
+  el('orderMode').onchange = () => setOrderMode(el('orderMode').value);
+  el('limitPrice').addEventListener('input', () => renderEstimate());
+
+  let openOrders = [];
+  const lockedShares = symbol => openOrders.filter(o => o.side === '매도' && o.symbol === symbol)
+    .reduce((sum, o) => sum + o.quantity, 0);
+  function renderOrders(orders) {
+    openOrders = orders;
+    const list = el('openOrders');
+    list.replaceChildren();
+    el('ordersBox').hidden = orders.length === 0;
+    for (const o of orders) {
+      const li = document.createElement('li');
+      li.append(stockName(o.symbol) + ' ' + won(o.limitWon) + ' ' + o.quantity + '주 ' + o.side +
+        (o.reservedWon ? ' (현금 ' + won(o.reservedWon) + ' 묶임)' : ' (주식 묶임)') + ' · ' + clockText(o.placedSecond) + ' ');
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.textContent = '취소';
+      cancel.onclick = () => socket.send('CANCEL ' + o.id);
+      li.append(cancel);
+      list.append(li);
+    }
+    renderEstimate();
+  }
 
   let lastNewsNumber = 0;
   let popupTimer;
@@ -370,9 +414,12 @@
     let quantity;
     try { quantity = BigInt(el('quantity').value); } catch { quantity = 0n; }
     const symbol = el('symbol').value;
+    const mode = el('orderMode').value;
+    if (mode === 'won') return renderWonEstimate(out, symbol, quantity);
     const q = quote(symbol, quantity);
     if (!q) { out.textContent = ''; return; }
-    const owned = BigInt(holdingsNow[symbol] ?? 0);
+    const owned = BigInt((holdingsNow[symbol] ?? 0) - lockedShares(symbol));
+    if (mode === 'limit') return renderLimitEstimate(out, symbol, quantity, q, owned);
     const avg = amount => won(Number(amount / quantity)) + '/주';
     const buyText = q.buy === null ? '매수 불가 (풀 수량 초과)'
       : '예상 매수 금액 ' + won(Number(q.buy)) + ' (평균 ' + avg(q.buy) + ')' +
@@ -380,6 +427,37 @@
     const sellText = quantity > owned ? '매도 불가 (보유 ' + owned + '주)'
       : '예상 매도 금액 ' + won(Number(q.sell)) + ' (평균 ' + avg(q.sell) + ')';
     out.textContent = buyText + ' · ' + sellText + ' — 주문이 도착할 때 시세가 바뀌면 달라질 수 있습니다.';
+  }
+  // 금액 주문: 매수는 그 금액(과 가진 현금) 안에서 최대 수량, 매도는 그 금액 이상을 받는 최소 수량.
+  function renderWonEstimate(out, symbol, amount) {
+    if (!pools[symbol] || amount <= 0n) { out.textContent = ''; return; }
+    const budget = amount < cashNow ? amount : cashNow;
+    let lo = 0n, hi = BigInt(pools[symbol].shares) - 1n;
+    while (lo < hi) { const mid = (lo + hi + 1n) / 2n; if (quote(symbol, mid).buy <= budget) lo = mid; else hi = mid - 1n; }
+    const buyText = lo > 0n ? '약 ' + lo + '주 매수 (' + won(Number(quote(symbol, lo).buy)) + ')' : '매수 불가 (금액 부족)';
+    const sellable = BigInt((holdingsNow[symbol] ?? 0) - lockedShares(symbol));
+    let sellText = '매도 불가 (팔 수 있는 주식 없음)';
+    if (sellable > 0n) {
+      let a = 1n, b = sellable;
+      while (a < b) { const mid = (a + b) / 2n; if (quote(symbol, mid).sell >= amount) b = mid; else a = mid + 1n; }
+      sellText = '약 ' + a + '주 매도 (' + won(Number(quote(symbol, a).sell)) + ')' + (quote(symbol, a).sell < amount ? ' · 전부 팔아도 모자람' : '');
+    }
+    out.textContent = buyText + ' · ' + sellText + ' — 주문이 도착할 때 시세가 바뀌면 달라질 수 있습니다.';
+  }
+
+  // 지정가: 묶일 현금·주식과, 지금 시세라면 바로 체결되는지 보여준다.
+  function renderLimitEstimate(out, symbol, quantity, q, owned) {
+    let price;
+    try { price = BigInt(el('limitPrice').value); } catch { price = 0n; }
+    if (price <= 0n) { out.textContent = '가격을 입력하세요. 호가창의 칸을 누르면 그 가격이 들어갑니다.'; return; }
+    const total = price * quantity;
+    const buyNow = q.buy !== null && q.buy <= total;
+    const sellNow = q.sell >= total;
+    const buyText = '매수: 현금 ' + won(Number(total)) + ' 묶임' + (total > cashNow ? ' · 현금 부족' : '') +
+      (buyNow ? ' · 지금 시세면 바로 체결' : ' · 평균 ' + won(Number(price)) + ' 이하가 되면 체결');
+    const sellText = quantity > owned ? '매도: 팔 수 있는 주식 부족' :
+      '매도: ' + quantity + '주 묶임' + (sellNow ? ' · 지금 시세면 바로 체결' : ' · 평균 ' + won(Number(price)) + ' 이상이 되면 체결');
+    out.textContent = buyText + ' / ' + sellText + ' (한 번에 전부 체결, 안 보고 있어도 체결, 퇴근 때 미체결 주문은 취소)';
   }
   el('quantity').addEventListener('input', renderEstimate);
   el('symbol').addEventListener('change', renderEstimate);
@@ -627,6 +705,9 @@
       a.className = b.className = 'qty';
       p.className = 'price';
       p.textContent = won(price);
+      p.style.cursor = 'pointer';
+      p.title = '이 가격으로 지정가 주문';
+      p.onclick = () => { setOrderMode('limit'); el('limitPrice').value = price; renderEstimate(); };
       if (askShares !== null) {
         a.textContent = askShares.toLocaleString('ko-KR') + '주';
         a.style.backgroundImage = bar(askShares, '#d6e6ff');
@@ -753,6 +834,7 @@
   };
 
   function resetGameView() {
+    renderOrders([]);
     candleData = {};
     newsMarks = new Map();
     booksNow = {};
@@ -865,7 +947,13 @@
       renderResults(message);
     } else if (message.type === 'newsHistory') {
       renderHistory(message.items);
+    } else if (message.type === 'orders') {
+      renderOrders(message.orders);
     } else if (message.type === 'fill') {
+      if (message.limit) {
+        showPopup('체결 알림 · ' + stockName(message.symbol) + ' ' + message.quantity + '주 ' + message.side,
+          '총 ' + won(message.amount) + ' · 평균 ' + won(Math.round(message.amount / message.quantity)) + '/주');
+      }
       el('fill').textContent =
         stockName(message.symbol) + ' ' + message.quantity + '주 ' + message.side +
         ' 체결 · 총 ' + won(message.amount);
@@ -878,6 +966,7 @@
       loanRepayNow = balance.loanRepayWon;
       el('balance').textContent =
         '내 현금 ' + won(balance.cashWon) + ' · 누적 업무 수당 ' + won(balance.workIncomeWon) +
+        (balance.reservedWon ? ' · 주문에 묶인 현금 ' + won(balance.reservedWon) : '') +
         (balance.loanRepayWon ? ' · 퇴근 때 대출 상환 ' + won(balance.loanRepayWon) : '');
       renderLoan();
       el('taskTitle').textContent = '업무 ' + task.number + ' · 완료 수당 ' + won(rewardWon);
