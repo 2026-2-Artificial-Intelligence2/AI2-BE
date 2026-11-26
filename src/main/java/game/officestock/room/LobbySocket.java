@@ -395,13 +395,14 @@ public class LobbySocket extends TextWebSocketHandler {
         if (desk == null) throw new IllegalStateException("게임 시작 후 업무를 제출하세요.");
         if (member.lobby().patrol.seats.get(member.player()).view != Patrol.View.WORK) throw new IllegalStateException("업무 창에서 제출하세요.");
         if (member.lobby().lunchTime()) throw new IllegalStateException("점심시간에는 업무 창이 잠겨 있습니다.");
-        var fields = command.split("\\s+");
+        // "WORK 번호 답". 답에는 띄어쓰기가 있을 수 있다(예: 메일 폴더 "고객 문의").
+        var fields = command.split("\\s+", 3);
         if (fields.length != 3) throw new IllegalArgumentException("업무 번호와 답을 입력하세요.");
         WorkDesk.TaskTiming timing;
         try {
-            timing = desk.submit(Long.parseLong(fields[1]), Integer.parseInt(fields[2]), System.nanoTime());
+            timing = desk.submit(Long.parseLong(fields[1]), fields[2], System.nanoTime());
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("업무 번호와 답은 정수여야 합니다.");
+            throw new IllegalArgumentException("업무 번호를 확인하세요.");
         }
         if (timing != null) {
             member.lobby().patrol.onWorkDone(member.player());
