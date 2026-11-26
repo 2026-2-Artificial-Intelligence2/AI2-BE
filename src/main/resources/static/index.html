@@ -82,6 +82,8 @@
       </select>
     </label>
     <button id="start" hidden>게임 시작</button>
+    <p><button id="micToggle">마이크 켜기</button> <span id="micStatus"></span></p>
+    <div id="mics"></div>
     <button id="leave">방 나가기</button>
   </section>
   <p id="clock" hidden></p>
@@ -90,7 +92,7 @@
   <button id="openMessenger" hidden>메신저</button>
   <p id="meeting" role="status" hidden>부장님과 면담 중입니다.</p>
   <p id="balance" hidden></p>
-  <div id="colleagues" hidden></div>
+  <div id="myGauge" hidden></div>
   <p><button id="loan" hidden></button></p>
   <p id="news" role="status" hidden></p>
   <details id="inbox" hidden>
@@ -312,7 +314,7 @@
     el('market').hidden = view !== 'MARKET';
     el('meeting').hidden = view !== 'MEETING';
     el('switchView').hidden = el('balance').hidden = el('inbox').hidden = !seated;
-    if (!seated) el('colleagues').hidden = true;
+    if (!seated) el('myGauge').hidden = true;
     seatedNow = seated;
     renderLoan();
     el('switchView').textContent = view === 'WORK' ? '주식 창 열기 (Tab)' : '업무 창 열기 (Tab)';
@@ -425,27 +427,78 @@
     }
   }
 
-  // 동료 업무 게이지: 서버는 내 것을 빼고 보낸다. 내 게이지는 남에게만 보인다.
-  function renderColleagues(colleagues) {
-    const box = el('colleagues');
-    box.replaceChildren();
-    if (!colleagues?.length) { box.hidden = true; return; }
+  function gaugeBar(percent, color, title) {
+    const bar = document.createElement('span');
+    bar.style.cssText = 'display:inline-block;width:5rem;height:.6rem;border:1px solid #999;vertical-align:middle;' +
+      `background:linear-gradient(${color},${color}) no-repeat left/${percent}% 100%`;
+    bar.title = title;
+    return bar;
+  }
+
+  // 내 업무 게이지(의심): 서버는 내 것만 보낸다. 업무를 안 하면 오르고, 업무를 내면 내려간다.
+  function renderMyGauge(suspicion) {
+    const box = el('myGauge');
+    if (suspicion == null) { box.hidden = true; return; }
     box.hidden = !seatedNow;
-    box.append(Object.assign(document.createElement('strong'), {textContent: '동료 업무 게이지 '}));
-    for (const c of colleagues) {
+    const color = suspicion >= 70 ? '#c62828' : suspicion >= 40 ? '#ef6c00' : '#2e7d32';
+    box.replaceChildren(Object.assign(document.createElement('strong'), {textContent: '내 업무 게이지 '}),
+      gaugeBar(suspicion, color, '의심 ' + suspicion + '/100'), ' ' + suspicion + (suspicion >= 70 ? ' · 부장님이 눈치챘습니다' : ''));
+  }
+
+  // 마이크 소리 크기: 브라우저에서 재서 MIC로 보내고, 방 사람 모두(나 포함)의 크기를 막대로 보여준다.
+  const micLevels = new Map();
+  function renderMics() {
+    const box = el('mics');
+    box.replaceChildren();
+    if (!micLevels.size) return;
+    box.append(Object.assign(document.createElement('strong'), {textContent: '소리 크기 '}));
+    for (const [label, level] of [...micLevels].sort()) {
       const item = document.createElement('span');
       item.style.marginRight = '1rem';
-      const color = c.suspicion >= 70 ? '#c62828' : c.suspicion >= 40 ? '#ef6c00' : '#2e7d32';
-      item.innerHTML = '';
-      item.append(c.label + ' ');
-      const bar = document.createElement('span');
-      bar.style.cssText = 'display:inline-block;width:5rem;height:.6rem;border:1px solid #999;vertical-align:middle;' +
-        `background:linear-gradient(${color},${color}) no-repeat left/${c.suspicion}% 100%`;
-      bar.title = '의심 ' + c.suspicion + '/100';
-      item.append(bar, ' ' + c.suspicion + (c.meeting ? ' (훈계 중)' : ''));
+      const color = level >= 70 ? '#c62828' : level >= 40 ? '#ef6c00' : '#1565c0';
+      item.append((label === youLabel ? label + '(나)' : label) + ' ', gaugeBar(level, color, '소리 ' + level + '/100'), ' ' + level);
       box.append(item);
     }
   }
+  let mic = null;
+  el('micToggle').onclick = async () => {
+    if (mic) {
+      clearInterval(mic.timer);
+      mic.stream.getTracks().forEach(t => t.stop());
+      mic.context.close();
+      mic = null;
+      if (socket.readyState === WebSocket.OPEN) socket.send('MIC OFF');
+      el('micToggle').textContent = '마이크 켜기';
+      el('micStatus').textContent = '';
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      context.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Float32Array(analyser.fftSize);
+      let last = -1;
+      const timer = setInterval(() => {
+        analyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (const v of samples) sum += v * v;
+        const db = 20 * Math.log10(Math.sqrt(sum / samples.length) || 1e-6);
+        // -60dB(조용함) → 0, -10dB(큰 소리) → 100
+        const level = Math.max(0, Math.min(100, Math.round((db + 60) * 2)));
+        if (Math.abs(level - last) >= 3 || (level === 0 && last !== 0)) {
+          last = level;
+          if (socket.readyState === WebSocket.OPEN) socket.send('MIC ' + level);
+        }
+      }, 100);
+      mic = {stream, context, timer};
+      el('micToggle').textContent = '마이크 끄기';
+      el('micStatus').textContent = '소리 크기를 방 사람들에게 보여줍니다(목소리는 보내지 않음).';
+    } catch (e) {
+      el('micStatus').textContent = '마이크를 쓸 수 없습니다: ' + e.message + ' (HTTPS 또는 localhost에서만 됩니다)';
+    }
+  };
 
   // 주문 방식: 수량·금액은 바로 체결되는 시장가, 지정가는 걸어 두고 조건이 맞으면 체결된다.
   function setOrderMode(mode) {
@@ -698,8 +751,9 @@
   }
 
   function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds, portfolio, coughBeat, lunchStartsInSeconds, lunchEndsInSeconds,
-      books, candles, newsSecond, newsSymbols, colleagues}) {
-    renderColleagues(colleagues);
+      books, candles, newsSecond, newsSymbols, suspicion, micLevels: levels}) {
+    renderMyGauge(suspicion);
+    if (levels) { micLevels.clear(); for (const [label, level] of Object.entries(levels)) micLevels.set(label, level); renderMics(); }
     mergeCandles(candles);
     if (newsNumber && !newsMarks.has(newsNumber)) {
       newsMarks.set(newsNumber, {second: newsSecond, kind: newsKind, symbols: newsSymbols, headline});
@@ -1192,6 +1246,9 @@
       levSel.value = [...levSel.options].some(o => o.value === chosen) ? chosen : '1';
       el('loan').textContent = '비상 대출 받기 (한 판에 한 번 · 최대 ' + won(loanTerms.maxWon) +
         ' · 퇴근 때 원금의 ' + (100 + loanTerms.interestPercent) + '% 상환)';
+    } else if (message.type === 'mic') {
+      if (message.on) micLevels.set(message.player, message.level); else micLevels.delete(message.player);
+      renderMics();
     } else if (message.type === 'notice') {
       showPopup('사내 소식 · ' + message.message, '');
       el('status').textContent = message.message;
