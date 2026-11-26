@@ -160,4 +160,55 @@ class GameFlowTest {
                 .contains("시작한");
         assertThat(player.request("SOLO 7", "error").path("message").asText()).contains("이미 방");
     }
+
+    @Test
+    void 음성_대화는_참여한_사람끼리만_연결_정보를_전달하고_끊기면_빠진다() throws Exception {
+        var tag = Long.toString(System.nanoTime() % 100_000);
+        var a = connect();
+        var b = connect();
+        var c = connect();
+        a.request("GUEST 가" + tag, "guest");
+        b.request("GUEST 나" + tag, "guest");
+        c.request("GUEST 다" + tag, "guest");
+        var code = a.request("CREATE", "state").path("code").asText();
+        b.request("JOIN " + code, "state");
+        c.request("JOIN " + code, "state");
+
+        a.request("VOICE JOIN", "state");
+        int from = a.received.size();
+        b.send("VOICE JOIN");
+        var state = a.await("state", m -> m.path("members").findValuesAsText("voice").stream()
+                .filter(Boolean::parseBoolean).count() == 2, from);
+        assertThat(state.path("members").get(2).path("voice").asBoolean()).isFalse();
+
+        // 가 → 나: 그대로 전달된다
+        from = b.received.size();
+        a.send("VOICE SIGNAL 나" + tag + " {\"sdp\":{\"type\":\"offer\",\"sdp\":\"v=0\"}}");
+        var relayed = b.await("voiceSignal", m -> true, from);
+        assertThat(relayed.path("from").asText()).isEqualTo("가" + tag);
+        assertThat(relayed.path("data").path("sdp").path("type").asText()).isEqualTo("offer");
+
+        // 참여하지 않은 다에게는 못 보내고, 다는 보낼 수도 없다
+        assertThat(a.request("VOICE SIGNAL 다" + tag + " {}", "error").path("message").asText()).contains("참여한 사람");
+        assertThat(c.request("VOICE SIGNAL 가" + tag + " {}", "error").path("message").asText()).contains("먼저 음성");
+        assertThat(a.request("VOICE SIGNAL 나" + tag + " [1]", "error").path("message").asText()).contains("JSON 객체");
+
+        // 음소거가 모두에게 보인다
+        from = c.received.size();
+        b.send("VOICE MUTE");
+        c.await("state", m -> m.path("members").get(1).path("muted").asBoolean(), from);
+
+        // 나가 연결을 끊으면 음성에서 빠진다
+        from = a.received.size();
+        b.session.close();
+        a.await("state", m -> !m.path("members").get(1).path("voice").asBoolean(), from);
+    }
+
+    @Test
+    void 솔로_방에는_음성_대화가_없다() throws Exception {
+        var player = connect();
+        player.request("GUEST 혼자" + System.nanoTime() % 100_000, "guest");
+        player.request("SOLO 5", "state");
+        assertThat(player.request("VOICE JOIN", "error").path("message").asText()).contains("음성 대화가 없습니다");
+    }
 }
