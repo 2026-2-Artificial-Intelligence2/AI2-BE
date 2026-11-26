@@ -493,18 +493,27 @@
     }
   }
 
-  // 비상 대출: 순자산(현금 + 주식 청산가)이 기준 미만이고 아직 안 받았을 때만 버튼을 보여준다. 서버도 같은 조건을 확인한다.
+  // 비상 대출: 누구나 한 판에 한 번, 금액은 직접 입력한다. 아직 안 받았을 때만 버튼을 보여준다.
   let loanTerms = null;
   let stockValueNow = 0;
   let loanRepayNow = 0;
   let seatedNow = false;
   function renderLoan() {
-    const eligible = loanTerms && seatedNow && !loanRepayNow &&
-      Number(cashNow) + stockValueNow < loanTerms.limitWon;
+    const eligible = loanTerms && seatedNow && !loanRepayNow;
     el('loan').hidden = !eligible;
   }
   el('loan').onclick = () => {
-    if (confirm(el('loan').textContent + '\n받으면 모두에게 알려집니다.')) socket.send('LOAN');
+    const input = prompt('얼마를 빌릴까요? (원, 한 판에 한 번)', '30000');
+    if (input === null) return;
+    let amount;
+    try { amount = BigInt(input.replace(/[,\s원]/g, '')); } catch { alert('금액은 숫자로 입력하세요.'); return; }
+    if (amount <= 0n) { alert('1원 이상 입력하세요.'); return; }
+    const percent = BigInt(loanTerms.interestPercent);
+    const repay = amount + (amount * percent + 99n) / 100n;
+    if (confirm(amount.toLocaleString('ko-KR') + '원을 빌리고 퇴근 때 ' + repay.toLocaleString('ko-KR') +
+        '원을 갚습니다.\n받으면 금액이 모두에게 알려집니다.')) {
+      socket.send('LOAN ' + amount);
+    }
   };
 
   function resetGameView() {
@@ -578,7 +587,8 @@
     } else if (message.type === 'catalog') {
       stocks = message.stocks;
       loanTerms = message.loan;
-      el('loan').textContent = '비상 대출 ' + won(loanTerms.amountWon) + ' 받기 (퇴근 때 ' + won(loanTerms.repayWon) + ' 상환, 한 판에 한 번)';
+      el('loan').textContent = '비상 대출 받기 (한 판에 한 번 · 금액 자유 · 퇴근 때 원금의 ' +
+        (100 + loanTerms.interestPercent) + '% 상환)';
     } else if (message.type === 'notice') {
       showPopup('사내 소식 · ' + message.message, '');
       el('status').textContent = message.message;
