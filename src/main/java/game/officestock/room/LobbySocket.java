@@ -89,6 +89,8 @@ public class LobbySocket extends TextWebSocketHandler {
     private final NewsCatalog news;
     /** 한 판에 상장하는 일반 종목 수. 0이면 전부. */
     private final int stocksPerGame;
+    /** 음성 연결에 쓸 STUN·TURN 서버 목록(브라우저 RTCPeerConnection의 iceServers 그대로). */
+    private final com.fasterxml.jackson.databind.JsonNode voiceIceServers;
     private final ProfileService profiles;
     private final ResultService results;
     /** 세션에 붙여 두는 로그인한 프로필(ProfileService.View). */
@@ -105,7 +107,8 @@ public class LobbySocket extends TextWebSocketHandler {
             @Value("${game.trade-fee-bps}") int tradeFeeBps,
             @Value("${game.margin-interest-bps-per-minute}") int marginInterestBpsPerMinute,
             @Value("${game.margin-maintenance-percent}") int marginMaintenancePercent,
-            @Value("${game.stocks-per-game:12}") int stocksPerGame) {
+            @Value("${game.stocks-per-game:12}") int stocksPerGame,
+            @Value("${VOICE_ICE_SERVERS:${game.voice-ice-servers}}") String voiceIceServers) {
         if (startingCashWon < 0 || workRewardWon <= 0 || sessionSeconds <= 0) {
             throw new IllegalArgumentException("시작 자금, 업무 수당, 근무 시간 설정을 확인하세요.");
         }
@@ -129,6 +132,7 @@ public class LobbySocket extends TextWebSocketHandler {
         this.news = news;
         if (stocksPerGame < 0) throw new IllegalArgumentException("한 판 상장 종목 수를 확인하세요.");
         this.stocksPerGame = stocksPerGame;
+        this.voiceIceServers = parseIceServers(json, voiceIceServers);
         this.profiles = profiles;
         this.results = results;
         reaper.scheduleWithFixedDelay(this::reapRooms, 5, 5, TimeUnit.SECONDS);
@@ -1297,6 +1301,9 @@ public class LobbySocket extends TextWebSocketHandler {
         switch (verb) {
             case "JOIN" -> {
                 lobby.voiceMuted.put(player, false);
+                // 연결을 맺기 전에 쓸 STUN·TURN 서버를 먼저 알려 준다(state보다 앞에 도착한다).
+                var session = lobby.clients.get(player);
+                if (session != null) send(session, Map.of("type", "voiceConfig", "iceServers", voiceIceServers));
                 broadcast(lobby);
             }
             case "LEAVE" -> {
@@ -1310,6 +1317,31 @@ public class LobbySocket extends TextWebSocketHandler {
             case "SIGNAL" -> relayVoiceSignal(lobby, player, space < 0 ? "" : rest.substring(space + 1).strip());
             default -> throw new IllegalArgumentException("VOICE 명령은 JOIN, LEAVE, MUTE, UNMUTE, SIGNAL 중 하나입니다.");
         }
+    }
+
+    /**
+     * VOICE_ICE_SERVERS(환경 변수) 또는 game.voice-ice-servers 설정. 예:
+     * [{"urls":"stun:stun.l.google.com:19302"},{"urls":["turn:a.example.com:3478","turns:a.example.com:443?transport=tcp"],"username":"u","credential":"p"}]
+     * 휴대폰 데이터망처럼 직접 연결이 막힌 곳에서는 TURN(중계)이 있어야 목소리가 오간다.
+     */
+    static com.fasterxml.jackson.databind.JsonNode parseIceServers(ObjectMapper json, String text) {
+        com.fasterxml.jackson.databind.JsonNode servers;
+        try {
+            servers = json.readTree(text);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("음성 ICE 서버 설정(VOICE_ICE_SERVERS)은 JSON 배열이어야 합니다: " + e.getMessage());
+        }
+        if (servers == null || !servers.isArray() || servers.isEmpty())
+            throw new IllegalArgumentException("음성 ICE 서버 설정(VOICE_ICE_SERVERS)은 서버가 하나 이상인 JSON 배열이어야 합니다.");
+        for (var server : servers) {
+            var urls = server.path("urls");
+            boolean ok = urls.isTextual() || (urls.isArray() && !urls.isEmpty());
+            if (!ok) throw new IllegalArgumentException("음성 ICE 서버마다 urls가 있어야 합니다: " + server);
+            boolean turn = urls.toString().contains("turn:") || urls.toString().contains("turns:");
+            if (turn && (!server.hasNonNull("username") || !server.hasNonNull("credential")))
+                throw new IllegalArgumentException("TURN 서버에는 username과 credential이 있어야 합니다: " + urls);
+        }
+        return servers;
     }
 
     private void relayVoiceSignal(Lobby lobby, UUID player, String rest) throws IOException {
