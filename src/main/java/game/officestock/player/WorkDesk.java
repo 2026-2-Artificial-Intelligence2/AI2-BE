@@ -20,6 +20,8 @@ public final class WorkDesk {
     private boolean lastWorking = true;
     private int wrongAnswers;
     private final List<TaskTiming> timings = new ArrayList<>();
+    /** 아직 받지 않은 메일 번호. 한 판 안에서 같은 메일이 다시 오지 않게 한다. */
+    private final java.util.ArrayDeque<Integer> mailDeck = new java.util.ArrayDeque<>();
 
     public WorkDesk(long startingCashWon, long rewardWon, int feeBps, long nowNanos) {
         if (rewardWon <= 0) {
@@ -92,7 +94,7 @@ public final class WorkDesk {
     }
 
     private Task nextTask(long number) {
-        var made = TaskFactory.make(ThreadLocalRandom.current());
+        var made = TaskFactory.make(ThreadLocalRandom.current(), mailDeck);
         currentAnswer = made.answer();
         currentHint = made.hint();
         return new Task(number, made.kind(), made.title(), made.data());

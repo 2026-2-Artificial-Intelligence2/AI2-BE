@@ -795,7 +795,11 @@
       const row = el('quotes').insertRow();
       row.className = symbol === select.value ? 'selected' : '';
       row.onclick = () => { select.value = symbol; select.dispatchEvent(new Event('change')); };
-      row.insertCell().textContent = stockName(symbol);
+      const nameCell = row.insertCell();
+      nameCell.textContent = stockName(symbol);
+      const sector = stocks.find(s => s.id === symbol)?.sector;
+      if (sector) nameCell.append(Object.assign(document.createElement('small'),
+        {textContent: ' ' + sector, style: 'color:#666;font-size:.75em'}));
       row.insertCell().textContent = won(prices[symbol]);
       const quick = row.insertCell();
       quick.style.whiteSpace = 'nowrap';

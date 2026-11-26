@@ -1017,11 +1017,12 @@ public class LobbySocket extends TextWebSocketHandler {
 
     /** 화면이 종목 코드를 이름으로 바꿀 수 있게 게임 시작·재접속 때 보내는 이번 판 종목 목록. */
     private static List<Map<String, String>> catalogMessage(Lobby lobby) {
-        return lobby.market.catalog().stocks().stream()
+        var catalog = lobby.market.catalog();
+        return catalog.stocks().stream()
                 .map(s -> s.derived()
-                        ? Map.of("id", s.id(), "name", s.name(), "underlying", s.underlying(),
-                                "leverage", String.valueOf(s.leverage()))
-                        : Map.of("id", s.id(), "name", s.name())).toList();
+                        ? Map.of("id", s.id(), "name", s.name(), "sector", catalog.sectorOf(s),
+                                "underlying", s.underlying(), "leverage", String.valueOf(s.leverage()))
+                        : Map.of("id", s.id(), "name", s.name(), "sector", catalog.sectorOf(s))).toList();
     }
 
     private void attach(WebSocketSession session, Lobby lobby, UUID player) {

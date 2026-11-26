@@ -24,11 +24,20 @@ public record StockCatalog(List<Stock> stocks) {
      * @param story 출근 전 주가 흐름(선택). 구간을 순서대로 이어 붙여 차트의 과거 봉을 만들고, 마지막은 시작가에 닿는다.
      * @param underlying 레버리지·인버스 종목이면 기초 종목 코드(아니면 null). 뉴스·흔들림·story는 기초 종목을 따른다.
      * @param leverage 레버리지 배수(예: 3, 2, -1 인버스). underlying이 있을 때만 쓴다.
+     * @param sector 업종(예: "은행", "항공"). 시세표에 보여 외부 뉴스가 어떤 종목에 닿는지 읽게 한다.
+     *               일반 종목은 꼭 적고, 레버리지 종목은 비워 두면 기초 종목의 업종을 따른다.
      */
     public record Stock(String id, String name, long startPriceWon, long poolShares,
-                        double volatilityPerSecond, List<StorySegment> story, String underlying, Double leverage) {
+                        double volatilityPerSecond, List<StorySegment> story, String underlying, Double leverage,
+                        String sector) {
         public Stock {
             story = story == null ? List.of() : List.copyOf(story);
+            if (sector != null && sector.isBlank()) sector = null;
+        }
+
+        public Stock(String id, String name, long startPriceWon, long poolShares, double volatilityPerSecond,
+                     List<StorySegment> story, String underlying, Double leverage) {
+            this(id, name, startPriceWon, poolShares, volatilityPerSecond, story, underlying, leverage, null);
         }
 
         public Stock(String id, String name, long startPriceWon, long poolShares, double volatilityPerSecond) {
@@ -69,6 +78,8 @@ public record StockCatalog(List<Stock> stocks) {
             if (!ids.add(s.id())) throw invalid("종목 코드가 겹칩니다: " + s.id());
             if (s.name() == null || s.name().isBlank()) throw invalid(s.id() + ": 이름이 비었습니다.");
             if (!names.add(s.name())) throw invalid("종목 이름이 겹칩니다: " + s.name());
+            if (!s.derived() && s.sector() == null) throw invalid(s.id() + ": 업종(sector)을 적어야 합니다.");
+            if (s.sector() != null && s.sector().length() > 12) throw invalid(s.id() + ": 업종은 12자 이내여야 합니다.");
             if (s.startPriceWon() < 10) throw invalid(s.id() + ": 시작 기준가는 10원 이상이어야 합니다.");
             if (s.poolShares() < 10) throw invalid(s.id() + ": 풀 주식 수는 10주 이상이어야 합니다.");
             Math.multiplyExact(s.startPriceWon(), s.poolShares());
@@ -99,6 +110,13 @@ public record StockCatalog(List<Stock> stocks) {
                 throw invalid(s.id() + ": leverage는 0과 1이 아니고 -5~5 사이여야 합니다(예: 3, 2, -1).");
             if (!s.story().isEmpty()) throw invalid(s.id() + ": 레버리지 종목은 story를 쓰지 않습니다(기초 종목을 따릅니다).");
         }
+    }
+
+    /** 화면에 보일 업종. 레버리지 종목이 비워 두었으면 기초 종목의 업종을 쓴다. */
+    public String sectorOf(Stock stock) {
+        if (stock.sector() != null || !stock.derived()) return stock.sector();
+        var base = stock(stock.underlying());
+        return base == null ? null : base.sector();
     }
 
     public Stock stock(String id) {
