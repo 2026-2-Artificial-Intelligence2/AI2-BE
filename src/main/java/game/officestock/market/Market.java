@@ -85,6 +85,16 @@ public final class Market {
         return reserves.cashWon() / reserves.shares();
     }
 
+    /**
+     * 플레이어가 메신저에서 뿌린 익명 찌라시. 시스템 찌라시와 똑같이 보이지만 가격은 움직이지 않는다.
+     * @return 알림창에 들어간 항목
+     */
+    public NewsItem addPlayerRumor(String text) {
+        var item = new NewsItem(history.size() + 1, "rumor", List.of(), text, null);
+        history.add(item);
+        return item;
+    }
+
     /** 플레이어 주문 직후에 부른다. */
     public void recordTrade(String symbol, long spotBeforeWon) {
         drifts.get(symbol).onTrade(spotBeforeWon, spotPrice(symbol));

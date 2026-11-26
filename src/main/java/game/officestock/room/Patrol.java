@@ -13,7 +13,14 @@ import java.util.concurrent.ThreadLocalRandom;
  * 부장님이 곧장 온다. 100인 채로 점검받으면 업무 창을 띄워 놔도 훈계를 받는다.
  */
 final class Patrol {
-    enum View { WORK, MARKET, MEETING }
+    enum View {
+        WORK, MARKET, MESSENGER, MEETING;
+
+        /** 부장님에게 들키면 훈계받는 화면(주식 창, 메신저 창). */
+        boolean slacking() {
+            return this == MARKET || this == MESSENGER;
+        }
+    }
 
     record Point(double x, double z) {}
     record Listener(Point position, int forwardZ) {}
@@ -49,7 +56,7 @@ final class Patrol {
         final Listener listener;
         View view = View.WORK;
         long returnTick;
-        /** 훈계 이유: "market"(주식 창 적발) 또는 "idle"(업무 방치). */
+        /** 훈계 이유: "market"(주식 창 적발), "messenger"(메신저 창 적발), "idle"(업무 방치). */
         String meetingReason;
         double suspicion;
         long idleSeconds;
@@ -179,8 +186,8 @@ final class Patrol {
 
     private void inspect(long tick) {
         Seat seat = seats.get(target);
-        if (seat != null && seat.view == View.MARKET) {
-            meeting(seat, tick, MARKET_MEETING_BEATS, "market");
+        if (seat != null && seat.view.slacking()) {
+            meeting(seat, tick, MARKET_MEETING_BEATS, seat.view == View.MARKET ? "market" : "messenger");
         } else if (seat != null && seat.present && seat.view == View.WORK
                 && seat.suspicion >= SUSPICION_MAX) {
             meeting(seat, tick, IDLE_MEETING_BEATS, "idle");

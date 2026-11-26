@@ -42,6 +42,11 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final String MEMBERSHIP = "membership";
     /** 시작 전 대기실에서 연결이 끊긴 사람의 자리를 지켜 주는 시간. 넘으면 퇴장 처리한다. */
     private static final long LOBBY_GRACE_NANOS = TimeUnit.SECONDS.toNanos(60);
+    /** 메신저: 메시지 길이, 연속 전송 간격, 방에 남기는 기록 수, 익명 찌라시 길이. */
+    private static final int MAX_CHAT_LENGTH = 200;
+    private static final long CHAT_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(400);
+    private static final int MAX_CHAT_HISTORY = 300;
+    private static final int MAX_LEAK_LENGTH = 60;
     /** 방장이 고를 수 있는 근무 시간 범위(분). 화면은 5·10·15·20분을 보여준다. */
     private static final int MIN_SESSION_MINUTES = 1;
     private static final int MAX_SESSION_MINUTES = 60;
@@ -119,11 +124,20 @@ public class LobbySocket extends TextWebSocketHandler {
         long sessionTicks;
         /** 같은 방에서 몇 번째 판인가. 기록(업무 시간 CSV, 로그)에서 판을 구분한다. */
         int round = 1;
+        /**
+         * 화면과 기록에 쓰는 이름(P1, P2…). 입장할 때 정하고 다시 하기를 해도 바꾸지 않는다.
+         * 누가 나가도 다른 사람의 이름은 그대로다.
+         */
+        final Map<UUID, String> labels = new HashMap<>();
+        int nextLabel = 1;
+        /** 사내 메신저 기록. 방이 유지되는 동안 판이 바뀌어도 남는다(최근 MAX_CHAT_HISTORY개). */
+        final List<ChatMessage> chats = new ArrayList<>();
+        final Map<UUID, Long> lastChatNanos = new HashMap<>();
 
         // 아래는 한 판의 상태. 같은 방에서 다시 하면 nextRound()로 새로 만든다.
         final Map<UUID, WorkDesk> desks = new HashMap<>();
-        /** 기록용 이름(P1, P2…). 게임 시작 때 입장 순서로 정한다. */
-        final Map<UUID, String> labels = new HashMap<>();
+        /** 이번 판에 익명 찌라시를 뿌린 사람과 내용. 퇴근 결과에서 공개한다. */
+        final List<Leak> leaks = new ArrayList<>();
         Market market;
         Patrol patrol = new Patrol();
         final List<Settlement.TradeRecord> trades = new ArrayList<>();
@@ -155,7 +169,7 @@ public class LobbySocket extends TextWebSocketHandler {
         void nextRound(Market freshMarket) {
             round++;
             desks.clear();
-            labels.clear();
+            leaks.clear();
             market = freshMarket;
             patrol = new Patrol();
             trades.clear();
@@ -176,6 +190,11 @@ public class LobbySocket extends TextWebSocketHandler {
     }
 
     private record Membership(Lobby lobby, UUID player) {}
+
+    /** @param to 받는 사람 이름, 단체방이면 null */
+    private record ChatMessage(int id, long second, String from, String to, String text) {}
+
+    private record Leak(String player, int newsNumber, String text) {}
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message)
@@ -208,14 +227,24 @@ public class LobbySocket extends TextWebSocketHandler {
                         setLength(lobby, member.player(), command.substring(7).strip());
                         return;
                     }
+                    if (command.startsWith("CHAT ")) {
+                        chat(lobby, member.player(), command.substring(5));
+                        return;
+                    }
                     if (lobby.finished) {
                         throw new IllegalStateException("퇴근했습니다. 결과를 확인하세요.");
                     }
-                    if (command.equals("SWITCH")) {
+                    if (command.startsWith("LEAK ")) {
+                        leak(lobby, member.player(), command.substring(5).strip());
+                        return;
+                    }
+                    if (command.equals("SWITCH") || command.equals("MESSENGER")) {
                         var seat = lobby.patrol.seats.get(member.player());
                         if (seat == null || seat.view == Patrol.View.MEETING)
                             throw new IllegalStateException("현재 화면을 전환할 수 없습니다.");
-                        seat.view = seat.view == Patrol.View.WORK ? Patrol.View.MARKET : Patrol.View.WORK;
+                        // Tab(SWITCH): 업무 창 ↔ 주식 창, 메신저 창에서는 업무 창으로. MESSENGER: 메신저 창 열기.
+                        if (command.equals("MESSENGER")) seat.view = Patrol.View.MESSENGER;
+                        else seat.view = seat.view == Patrol.View.WORK ? Patrol.View.MARKET : Patrol.View.WORK;
                         lobby.desks.get(member.player())
                                 .observeView(seat.view == Patrol.View.WORK, System.nanoTime());
                         send(session, Map.of("type", "view", "view", seat.view));
@@ -300,7 +329,6 @@ public class LobbySocket extends TextWebSocketHandler {
         long now = System.nanoTime();
         // 잠시 연결이 끊긴 사람도 참가자다. 돌아오면 자기 책상에서 이어서 한다.
         for (var player : players) {
-            lobby.labels.putIfAbsent(player, "P" + (players.indexOf(player) + 1));
             lobby.desks.computeIfAbsent(player, id -> new WorkDesk(startingCashWon, workRewardWon, now));
             if (!lobby.clients.containsKey(player)) {
                 lobby.desks.get(player).observeView(false, now);
@@ -337,6 +365,73 @@ public class LobbySocket extends TextWebSocketHandler {
             playtest.task(member.lobby().logName(), member.lobby().labels.get(member.player()), timing);
         }
         sendDesk(session, desk);
+    }
+
+    /**
+     * 사내 메신저. "ALL 내용"은 단체방, "P2 내용"은 P2에게 귓속말. 게임 중에는 메신저 창에서만 보낼 수 있고,
+     * 대기실과 퇴근 뒤에는 자유롭게 보낼 수 있다.
+     */
+    private void chat(Lobby lobby, UUID player, String rest) throws IOException {
+        boolean playing = lobby.started() && !lobby.finished;
+        if (playing && lobby.patrol.seats.get(player).view != Patrol.View.MESSENGER)
+            throw new IllegalStateException("메신저 창에서 보내세요.");
+        int space = rest.indexOf(' ');
+        if (space < 0) throw new IllegalArgumentException("받는 사람과 내용을 입력하세요.");
+        String target = rest.substring(0, space);
+        String text = cleanText(rest.substring(space + 1), MAX_CHAT_LENGTH);
+        long now = System.nanoTime();
+        Long last = lobby.lastChatNanos.get(player);
+        if (last != null && now - last < CHAT_INTERVAL_NANOS) throw new IllegalStateException("너무 빠르게 보내고 있습니다.");
+        String from = lobby.labels.get(player);
+        UUID recipient = null;
+        if (!target.equals("ALL")) {
+            recipient = lobby.labels.entrySet().stream()
+                    .filter(e -> e.getValue().equals(target) && lobby.game.snapshot().players().contains(e.getKey()))
+                    .map(Map.Entry::getKey).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("받는 사람을 찾을 수 없습니다."));
+            if (recipient.equals(player)) throw new IllegalArgumentException("자기 자신에게는 보낼 수 없습니다.");
+        }
+        lobby.lastChatNanos.put(player, now);
+        var message = new ChatMessage(lobby.chats.isEmpty() ? 1 : lobby.chats.getLast().id() + 1,
+                playing ? lobby.tick * Market.TICK_SECONDS : -1, from, recipient == null ? null : target, text);
+        lobby.chats.add(message);
+        if (lobby.chats.size() > MAX_CHAT_HISTORY) lobby.chats.removeFirst();
+        for (var entry : lobby.clients.entrySet()) {
+            if (recipient == null || entry.getKey().equals(player) || entry.getKey().equals(recipient)) {
+                send(entry.getValue(), Map.of("type", "chat", "message", message));
+            }
+        }
+    }
+
+    /** 내가 볼 수 있는 메신저 기록(단체방과 내가 주고받은 귓속말). 입장·재접속 때 보낸다. */
+    private void sendChatHistory(WebSocketSession session, Lobby lobby, UUID player) throws IOException {
+        var me = lobby.labels.get(player);
+        send(session, Map.of("type", "chatHistory", "messages", lobby.chats.stream()
+                .filter(m -> m.to() == null || m.to().equals(me) || m.from().equals(me)).toList()));
+    }
+
+    /** 익명 찌라시: 한 판에 한 번, 내가 쓴 문장을 진짜 찌라시처럼 모두의 화면에 뿌린다. 가격은 움직이지 않는다. */
+    private void leak(Lobby lobby, UUID player, String text) throws IOException {
+        if (!lobby.started()) throw new IllegalStateException("게임 시작 후 뿌릴 수 있습니다.");
+        if (lobby.patrol.seats.get(player).view != Patrol.View.MESSENGER)
+            throw new IllegalStateException("메신저 창에서 뿌리세요.");
+        var label = lobby.labels.get(player);
+        if (lobby.leaks.stream().anyMatch(l -> l.player().equals(label)))
+            throw new IllegalStateException("익명 찌라시는 한 판에 한 번만 뿌릴 수 있습니다.");
+        var item = lobby.market.addPlayerRumor(cleanText(text, MAX_LEAK_LENGTH));
+        lobby.leaks.add(new Leak(label, item.number(), item.headline()));
+        log.info("방 {} {} 익명 찌라시: {}", lobby.logName(), label, item.headline());
+        send(lobby.clients.get(player), Map.of("type", "leakSent", "message", "익명 찌라시를 뿌렸습니다. 누가 뿌렸는지는 퇴근 뒤 공개됩니다."));
+        broadcastMarket(lobby);
+    }
+
+    /** 앞뒤 공백과 제어 문자를 지우고 길이를 확인한다. */
+    private static String cleanText(String raw, int maxLength) {
+        var text = raw.replaceAll("\\p{Cntrl}", " ").strip();
+        if (text.isEmpty()) throw new IllegalArgumentException("내용을 입력하세요.");
+        if (text.codePointCount(0, text.length()) > maxLength)
+            throw new IllegalArgumentException(maxLength + "자 이내로 입력하세요.");
+        return text;
     }
 
     private void takeLoan(Lobby lobby, UUID player, WebSocketSession session, String amountText)
@@ -484,7 +579,7 @@ public class LobbySocket extends TextWebSocketHandler {
     private void sendResult(Lobby lobby, UUID player, WebSocketSession session) throws IOException {
         send(session, Map.of("type", "result", "you", lobby.labels.get(player),
                 "standings", lobby.standings, "trades", lobby.trades,
-                "news", lobby.market.history()));
+                "news", lobby.market.history(), "leaks", lobby.leaks));
     }
 
     private void broadcastMarket(Lobby lobby) throws IOException {
@@ -534,6 +629,7 @@ public class LobbySocket extends TextWebSocketHandler {
                 if (rooms.putIfAbsent(code, lobby) != null) continue;
                 attach(session, lobby, host);
                 broadcast(lobby);
+                sendChatHistory(session, lobby, host);
                 return;
             } finally {
                 lobby.lock.unlock();
@@ -551,6 +647,7 @@ public class LobbySocket extends TextWebSocketHandler {
             lobby.game.join(player);
             attach(session, lobby, player);
             broadcast(lobby);
+            sendChatHistory(session, lobby, player);
         } finally {
             lobby.lock.unlock();
         }
@@ -581,6 +678,7 @@ public class LobbySocket extends TextWebSocketHandler {
             }
             log.info("방 {} {} 재접속", code, lobby.labels.getOrDefault(player, "대기실 참가자"));
             broadcast(lobby);
+            sendChatHistory(session, lobby, player);
             if (!lobby.started()) return;
             send(session, Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon)));
             sendDesk(session, lobby.desks.get(player));
@@ -604,6 +702,7 @@ public class LobbySocket extends TextWebSocketHandler {
 
     private void attach(WebSocketSession session, Lobby lobby, UUID player) {
         lobby.clients.put(player, session);
+        lobby.labels.put(player, "P" + lobby.nextLabel++);
         var bytes = new byte[18];
         random.nextBytes(bytes);
         lobby.tokens.put(player, Base64.getUrlEncoder().withoutPadding().encodeToString(bytes));
@@ -613,11 +712,16 @@ public class LobbySocket extends TextWebSocketHandler {
     private void broadcast(Lobby lobby) throws IOException {
         var state = lobby.game.snapshot();
         var offline = List.copyOf(lobby.offlineSince.keySet());
+        // 메신저 받는 사람 목록과 화면 표시용. 입장 순서대로.
+        var members = state.players().stream().map(id -> Map.of(
+                "label", lobby.labels.get(id), "host", id.equals(state.hostId()),
+                "online", lobby.clients.containsKey(id))).toList();
         for (var entry : lobby.clients.entrySet()) {
             send(entry.getValue(), Map.of("type", "state", "code", lobby.code,
                     "you", entry.getKey(), "token", lobby.tokens.get(entry.getKey()),
                     "room", state, "offline", offline, "round", lobby.round,
-                    "sessionSeconds", lobby.sessionSeconds));
+                    "sessionSeconds", lobby.sessionSeconds, "members", members,
+                    "youLabel", lobby.labels.get(entry.getKey())));
         }
     }
 
@@ -644,7 +748,7 @@ public class LobbySocket extends TextWebSocketHandler {
             var seat = lobby.patrol.seats.get(member.player());
             if (seat != null) {
                 seat.present = false;
-                if (seat.view == Patrol.View.MARKET) seat.view = Patrol.View.WORK;
+                if (seat.view.slacking()) seat.view = Patrol.View.WORK;
             }
             var desk = lobby.desks.get(member.player());
             if (desk != null) desk.observeView(false, now);

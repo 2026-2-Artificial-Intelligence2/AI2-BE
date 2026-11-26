@@ -17,6 +17,8 @@
     pointer-events: none;
   }
   #news strong { display: block; }
+  #chatLog { max-height: 14rem; overflow-y: auto; padding-left: 1.2rem; }
+  #chatLog .whisper { color: #6a1b9a; }
   /* 팝업 본문은 한 줄만 보이고, 넘치면 …로 줄인다. 전체는 알림창에서 읽는다. */
   #news .body {
     display: block;
@@ -52,6 +54,7 @@
   <p id="clock" hidden></p>
   <p id="lunch" role="status" hidden></p>
   <button id="switchView" hidden>주식 창 열기 (Tab)</button>
+  <button id="openMessenger" hidden>메신저</button>
   <p id="meeting" role="status" hidden>부장님과 면담 중입니다.</p>
   <p id="balance" hidden></p>
   <p><button id="loan" hidden></button></p>
@@ -99,6 +102,20 @@
       </table>
     </details>
   </section>
+  <section id="messenger" hidden>
+    <h2>사내 메신저</h2>
+    <ol id="chatLog"></ol>
+    <form id="chatForm">
+      <label>받는 사람 <select id="chatTo"><option value="ALL">전체</option></select></label>
+      <input id="chatText" maxlength="200" autocomplete="off" placeholder="메시지 (200자)">
+      <button>보내기</button>
+    </form>
+    <form id="leakForm" hidden>
+      <label>익명 찌라시 <input id="leakText" maxlength="60" autocomplete="off" placeholder="한 판에 한 번 · 60자 · 누가 뿌렸는지는 퇴근 뒤 공개"></label>
+      <button>뿌리기</button>
+    </form>
+    <p id="chatStatus" role="status"></p>
+  </section>
   <section id="results" hidden>
     <h2>퇴근! 최종 순위</h2>
     <p><button id="restart" hidden>같은 방에서 다시 하기</button>
@@ -108,6 +125,8 @@
       <tbody id="standings"></tbody>
     </table>
     <p>주식은 퇴근 순간 혼자 전부 팔았을 때 받을 금액으로 평가합니다.</p>
+    <h3>익명 찌라시의 주인</h3>
+    <ul id="leaks"></ul>
     <h3>매매 기록</h3>
     <p id="tradesEmpty" hidden>이번 판에는 아무도 주식을 거래하지 않았습니다.</p>
     <table>
@@ -220,7 +239,8 @@
   }
 
   function showView(view) {
-    const seated = view === 'WORK' || view === 'MARKET';
+    const seated = view === 'WORK' || view === 'MARKET' || view === 'MESSENGER';
+    currentView = view;
     el('work').hidden = view !== 'WORK';
     el('market').hidden = view !== 'MARKET';
     el('meeting').hidden = view !== 'MEETING';
@@ -232,7 +252,62 @@
       el('inbox').open = false;
       el('news').hidden = true;
     }
+    updateMessenger();
   }
+
+  // 사내 메신저. 대기실과 퇴근 뒤에는 늘 보이고, 게임 중에는 메신저 창을 열었을 때만 보인다.
+  // 메신저 창을 보다가 부장님에게 들키면 훈계다. 다른 창에서는 새 메시지 개수만 보인다.
+  let phase = 'out';          // out(방 밖) · lobby(대기실) · playing · finished
+  let currentView = null;
+  let youLabel = null;
+  let unread = 0;
+  let leakUsed = false;
+  function updateMessenger() {
+    const show = phase === 'lobby' || phase === 'finished' || (phase === 'playing' && currentView === 'MESSENGER');
+    el('messenger').hidden = !show;
+    if (show) unread = 0;
+    el('leakForm').hidden = !(phase === 'playing' && currentView === 'MESSENGER' && !leakUsed);
+    const button = el('openMessenger');
+    button.hidden = !(phase === 'playing' && seatedNow && currentView !== 'MESSENGER');
+    button.textContent = '메신저' + (unread ? ' (새 메시지 ' + unread + ')' : '');
+  }
+  function appendChat(m) {
+    const row = document.createElement('li');
+    const time = m.second >= 0 ? '[' + clockText(m.second) + '] ' : '';
+    row.textContent = time + m.from + (m.to ? ' → ' + m.to + ' (귓속말)' : '') + ': ' + m.text;
+    if (m.to) row.className = 'whisper';
+    const log = el('chatLog');
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+    log.append(row);
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+  function renderMembers(members) {
+    const select = el('chatTo');
+    const chosen = select.value;
+    select.replaceChildren(new Option('전체', 'ALL'));
+    for (const m of members) {
+      if (m.label === youLabel) continue;
+      select.add(new Option(m.label + (m.host ? ' (방장)' : '') + (m.online ? '' : ' · 연결 끊김'), m.label));
+    }
+    select.value = [...select.options].some(o => o.value === chosen) ? chosen : 'ALL';
+  }
+  el('openMessenger').onclick = () => socket.send('MESSENGER');
+  el('chatForm').onsubmit = event => {
+    event.preventDefault();
+    const text = el('chatText').value.trim();
+    if (!text || socket.readyState !== WebSocket.OPEN) return;
+    socket.send('CHAT ' + el('chatTo').value + ' ' + text);
+    el('chatText').value = '';
+  };
+  el('leakForm').onsubmit = event => {
+    event.preventDefault();
+    const text = el('leakText').value.trim();
+    if (!text) return;
+    if (confirm('이 문장을 익명 찌라시로 모두에게 뿌릴까요? (한 판에 한 번)\n' + text)) {
+      socket.send('LEAK ' + text);
+      el('leakText').value = '';
+    }
+  };
   el('switchView').onclick = () => socket.send('SWITCH');
   document.addEventListener('keydown', event => {
     if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey ||
@@ -366,8 +441,17 @@
     el('answerForm').querySelector('button').disabled = lunchTime;
   }
 
-  function renderResults({you, standings, trades}) {
+  function renderResults({you, standings, trades, leaks}) {
+    phase = 'finished';
     showView(null);
+    const leakList = el('leaks');
+    leakList.replaceChildren();
+    for (const l of leaks) {
+      const li = document.createElement('li');
+      li.textContent = l.player + (l.player === you ? ' (나)' : '') + ': "' + l.text + '"';
+      leakList.append(li);
+    }
+    if (!leaks.length) leakList.append(Object.assign(document.createElement('li'), {textContent: '이번 판에는 아무도 뿌리지 않았습니다.'}));
     el('clock').hidden = true;
     el('lunch').hidden = true;
     el('news').hidden = true;
@@ -518,6 +602,8 @@
   };
 
   function resetGameView() {
+    leakUsed = false;
+    el('chatStatus').textContent = '';
     loanRepayNow = 0;
     stockValueNow = 0;
     renderMyTrades([]);
@@ -533,6 +619,9 @@
   }
 
   function backToEntry() {
+    phase = 'out';
+    el('chatLog').replaceChildren();
+    updateMessenger();
     sessionStorage.removeItem(SEAT_KEY);
     clearNews();
     el('market').hidden = true;
@@ -549,7 +638,11 @@
   function onMessage(event) {
     const message = JSON.parse(event.data);
     if (message.type === 'state') {
-      const {room, code, you, token, offline, round, sessionSeconds} = message;
+      const {room, code, you, token, offline, round, sessionSeconds, members} = message;
+      youLabel = message.youLabel;
+      renderMembers(members);
+      phase = !room.startedAt ? 'lobby' : phase === 'finished' ? 'finished' : 'playing';
+      updateMessenger();
       sessionStorage.setItem(SEAT_KEY, JSON.stringify({code, token}));
       isHost = you === room.hostId;
       // 대기 상태(새 방이거나 다시 하기)면 지난 판 화면을 치운다. 퇴근 뒤 누가 나가도 결과는 남는다.
@@ -577,12 +670,25 @@
       showView(message.view);
     } else if (message.type === 'meeting') {
       lastNewsNumber = Math.max(lastNewsNumber, message.newsNumber);
-      el('meeting').textContent = message.reason === 'idle'
-        ? '부장님: "아까부터 올라오는 일이 하나도 없던데, 뭐 하고 있었어?" (업무 방치로 면담 중)'
-        : '부장님: "근무 시간에 주식이야?" (주식 창을 들켜 면담 중)';
+      el('meeting').textContent = {
+        idle: '부장님: "아까부터 올라오는 일이 하나도 없던데, 뭐 하고 있었어?" (업무 방치로 면담 중)',
+        messenger: '부장님: "근무 시간에 메신저로 수다야?" (메신저 창을 들켜 면담 중)'
+      }[message.reason] ?? '부장님: "근무 시간에 주식이야?" (주식 창을 들켜 면담 중)';
       showView('MEETING');
     } else if (message.type === 'market') {
       renderMarket(message);
+    } else if (message.type === 'chat') {
+      appendChat(message.message);
+      if (el('messenger').hidden && message.message.from !== youLabel) unread++;
+      updateMessenger();
+    } else if (message.type === 'chatHistory') {
+      el('chatLog').replaceChildren();
+      message.messages.forEach(appendChat);
+      el('chatLog').scrollTop = el('chatLog').scrollHeight;
+    } else if (message.type === 'leakSent') {
+      leakUsed = true;
+      el('chatStatus').textContent = message.message;
+      updateMessenger();
     } else if (message.type === 'myTrades') {
       renderMyTrades(message.trades);
     } else if (message.type === 'catalog') {
