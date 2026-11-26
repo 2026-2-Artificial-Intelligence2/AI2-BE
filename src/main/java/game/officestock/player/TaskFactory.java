@@ -30,13 +30,14 @@ final class TaskFactory {
             "부서별 비품 구매액", "지점별 판매 실적");
 
     private static Made sheet(RandomGenerator random) {
-        int rows = random.nextInt(3, 6);
+        // 쫓기면서도 암산으로 몇 초 안에 끝낼 수 있게 2~3행, 100 단위 금액만 쓴다.
+        int rows = random.nextInt(2, 4);
         var picked = new ArrayList<>(CLIENTS);
         java.util.Collections.shuffle(picked, random);
         var table = new ArrayList<Map<String, Object>>();
         long sum = 0;
         for (int i = 0; i < rows; i++) {
-            long amount = random.nextInt(120, 990);
+            long amount = random.nextInt(1, 10) * 100L;
             sum += amount;
             table.add(Map.of("name", picked.get(i), "amount", amount));
         }

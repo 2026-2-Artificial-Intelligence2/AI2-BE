@@ -51,6 +51,7 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final long CHAT_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(400);
     private static final int MAX_CHAT_HISTORY = 300;
     private static final int MAX_LEAK_LENGTH = 60;
+    private static final int MAX_LEAK_BODY_LENGTH = 300;
     /** 방장이 고를 수 있는 근무 시간 범위(분). 화면은 5·10·15·20분을 보여준다. */
     private static final int MIN_SESSION_MINUTES = 1;
     private static final int MAX_SESSION_MINUTES = 60;
@@ -150,6 +151,10 @@ public class LobbySocket extends TextWebSocketHandler {
          */
         final Map<UUID, String> labels = new HashMap<>();
         int nextLabel = 1;
+        /** 마이크 소리 크기(0~100). 브라우저가 재서 보내고, 연결이 끊기면 지운다. */
+        final Map<UUID, Integer> micLevels = new HashMap<>();
+        /** 사람별로 소리 크기를 마지막으로 방에 알린 시각(나노초). 너무 잦은 알림을 줄인다. */
+        final Map<UUID, Long> micSentAt = new HashMap<>();
         /** 사내 메신저 기록. 방이 유지되는 동안 판이 바뀌어도 남는다(최근 MAX_CHAT_HISTORY개). */
         final List<ChatMessage> chats = new ArrayList<>();
         final Map<UUID, Long> lastChatNanos = new HashMap<>();
@@ -251,6 +256,10 @@ public class LobbySocket extends TextWebSocketHandler {
                         broadcast(lobby);
                         return;
                     }
+                    if (command.startsWith("MIC ")) {
+                        setMicLevel(lobby, member.player(), command.substring(4).strip());
+                        return;
+                    }
                     if (command.startsWith("LENGTH ")) {
                         setLength(lobby, member.player(), command.substring(7).strip());
                         return;
@@ -262,8 +271,13 @@ public class LobbySocket extends TextWebSocketHandler {
                     if (lobby.finished) {
                         throw new IllegalStateException("퇴근했습니다. 결과를 확인하세요.");
                     }
+                    if (command.startsWith("LEAK_ARTICLE ")) {
+                        var article = parseLeakArticle(command.substring("LEAK_ARTICLE ".length()));
+                        leak(lobby, member.player(), article.headline(), article.body());
+                        return;
+                    }
                     if (command.startsWith("LEAK ")) {
-                        leak(lobby, member.player(), command.substring(5).strip());
+                        leak(lobby, member.player(), command.substring(5).strip(), null);
                         return;
                     }
                     if (command.equals("SWITCH") || command.equals("MESSENGER")) {
@@ -453,18 +467,33 @@ public class LobbySocket extends TextWebSocketHandler {
     }
 
     /** 익명 찌라시: 한 판에 한 번, 내가 쓴 문장을 진짜 찌라시처럼 모두의 화면에 뿌린다. 가격은 움직이지 않는다. */
-    private void leak(Lobby lobby, UUID player, String text) throws IOException {
+    private void leak(Lobby lobby, UUID player, String headline, String body) throws IOException {
         if (!lobby.started()) throw new IllegalStateException("게임 시작 후 뿌릴 수 있습니다.");
         if (lobby.patrol.seats.get(player).view != Patrol.View.MESSENGER)
             throw new IllegalStateException("메신저 창에서 뿌리세요.");
         var label = lobby.labels.get(player);
         if (lobby.leaks.stream().anyMatch(l -> l.player().equals(label)))
             throw new IllegalStateException("익명 찌라시는 한 판에 한 번만 뿌릴 수 있습니다.");
-        var item = lobby.market.addPlayerRumor(cleanText(text, MAX_LEAK_LENGTH));
+        var item = lobby.market.addPlayerRumor(cleanText(headline, MAX_LEAK_LENGTH),
+                body == null ? null : cleanText(body, MAX_LEAK_BODY_LENGTH));
         lobby.leaks.add(new Leak(label, item.number(), item.headline()));
         log.info("방 {} {} 익명 찌라시: {}", lobby.logName(), label, item.headline());
         send(lobby.clients.get(player), Map.of("type", "leakSent", "message", "익명 찌라시를 뿌렸습니다. 누가 뿌렸는지는 퇴근 뒤 공개됩니다."));
         broadcastMarket(lobby);
+    }
+
+    private record LeakArticle(String headline, String body) {}
+
+    private LeakArticle parseLeakArticle(String raw) {
+        try {
+            var article = json.readTree(raw);
+            if (article != null && article.path("headline").isTextual() && article.path("body").isTextual()) {
+                return new LeakArticle(article.get("headline").textValue(), article.get("body").textValue());
+            }
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+            // The client receives the same format error for malformed JSON and missing fields.
+        }
+        throw new IllegalArgumentException("찌라시 제목과 본문을 확인하세요.");
     }
 
     /** 앞뒤 공백과 제어 문자를 지우고 길이를 확인한다. */
@@ -860,10 +889,11 @@ public class LobbySocket extends TextWebSocketHandler {
             books.put(symbol, lobby.market.orderBook(symbol));
         });
         var candles = lobby.market.chart().latest();
-        // 동료들의 업무 게이지(의심). 본인 것은 보내지 않는다: 내 게이지는 남에게만 보인다.
-        var gauges = new LinkedHashMap<UUID, Map<String, Object>>();
-        lobby.patrol.seats.forEach((id, s) -> gauges.put(id, Map.of("label", lobby.labels.get(id),
-                "suspicion", (int) Math.round(s.suspicion), "meeting", s.view == Patrol.View.MEETING)));
+        // 동료 목록(훈계 중인지). 업무 게이지(의심)는 본인에게만 suspicion으로 보낸다.
+        var colleagues = new LinkedHashMap<UUID, Map<String, Object>>();
+        lobby.patrol.seats.forEach((id, s) -> colleagues.put(id, Map.of("label", lobby.labels.get(id),
+                "meeting", s.view == Patrol.View.MEETING)));
+        var micLevels = micLevels(lobby);
         for (var entry : lobby.clients.entrySet()) {
             var seat = lobby.patrol.seats.get(entry.getKey());
             if (seat.view == Patrol.View.MEETING) {
@@ -885,8 +915,10 @@ public class LobbySocket extends TextWebSocketHandler {
                     Map.entry("walking", lobby.patrol.walking),
                     Map.entry("step", lobby.patrol.step(seat)),
                     Map.entry("coughBeat", seat.coughBeat),
-                    Map.entry("colleagues", gauges.entrySet().stream()
+                    Map.entry("suspicion", (int) Math.round(seat.suspicion)),
+                    Map.entry("colleagues", colleagues.entrySet().stream()
                             .filter(e -> !e.getKey().equals(entry.getKey())).map(Map.Entry::getValue).toList()),
+                    Map.entry("micLevels", micLevels),
                     Map.entry("lunchStartsInSeconds", (lobby.lunchStartTick - lobby.tick) * Market.TICK_SECONDS),
                     Map.entry("lunchEndsInSeconds", (lobby.lunchEndTick - lobby.tick) * Market.TICK_SECONDS),
                     Map.entry("remainingSeconds",
@@ -1035,6 +1067,7 @@ public class LobbySocket extends TextWebSocketHandler {
         try {
             if (lobby.clients.get(member.player()) != session) return;
             lobby.clients.remove(member.player());
+            clearMic(lobby, member.player());
             long now = System.nanoTime();
             lobby.offlineSince.put(member.player(), now);
             var seat = lobby.patrol.seats.get(member.player());
@@ -1050,9 +1083,57 @@ public class LobbySocket extends TextWebSocketHandler {
         }
     }
 
+    /** 마이크 소리 크기 알림 사이의 최소 간격. 크기가 0이 될 때는 바로 알린다. */
+    private static final long MIC_BROADCAST_GAP_NANOS = 150_000_000L;
+
+    /**
+     * MIC 0~100: 브라우저가 잰 내 마이크 소리 크기. MIC OFF: 마이크를 껐다.
+     * 같은 방 모두(나 포함)에게 mic 메시지로 바로 알린다.
+     * 대기실·게임 중·퇴근 뒤 언제든 보낼 수 있다. 너무 잦으면 값만 저장하고, 매초 시세 메시지의 micLevels로 따라잡는다.
+     */
+    private void setMicLevel(Lobby lobby, UUID player, String value) throws IOException {
+        if (value.equals("OFF")) {
+            clearMic(lobby, player);
+            return;
+        }
+        int level;
+        try {
+            level = Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("소리 크기는 0~100 사이의 정수여야 합니다.");
+        }
+        if (level < 0 || level > 100) throw new IllegalArgumentException("소리 크기는 0~100 사이의 정수여야 합니다.");
+        Integer previous = lobby.micLevels.put(player, level);
+        if (previous != null && previous == level) return;
+        long now = System.nanoTime();
+        Long sentAt = lobby.micSentAt.get(player);
+        if (level != 0 && sentAt != null && now - sentAt < MIC_BROADCAST_GAP_NANOS) return;
+        lobby.micSentAt.put(player, now);
+        broadcastMic(lobby, player, level, true);
+    }
+
+    /** 마이크를 끄거나 연결이 끊기거나 나가면 소리 크기를 지우고 꺼졌다고(on: false) 알린다. */
+    private void clearMic(Lobby lobby, UUID player) throws IOException {
+        lobby.micSentAt.remove(player);
+        if (lobby.micLevels.remove(player) != null) broadcastMic(lobby, player, 0, false);
+    }
+
+    private void broadcastMic(Lobby lobby, UUID player, int level, boolean on) throws IOException {
+        var message = Map.of("type", "mic", "player", lobby.labels.get(player), "level", level, "on", on);
+        for (var client : lobby.clients.values()) send(client, message);
+    }
+
+    /** 이름(P1…)별 지금 마이크 소리 크기. 마이크를 켜지 않은 사람은 빠진다. */
+    private static Map<String, Integer> micLevels(Lobby lobby) {
+        var levels = new java.util.TreeMap<String, Integer>();
+        lobby.micLevels.forEach((id, level) -> levels.put(lobby.labels.get(id), level));
+        return levels;
+    }
+
     /** 스스로 나가거나 대기실에서 오래 돌아오지 않은 경우. 방장이 나가면 방이 닫힌다. */
     private void leave(Lobby lobby, UUID player) throws IOException {
         lobby.clients.remove(player);
+        clearMic(lobby, player);
         lobby.tokens.remove(player);
         lobby.offlineSince.remove(player);
         cancelAll(lobby, player);
