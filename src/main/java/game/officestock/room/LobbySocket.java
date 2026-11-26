@@ -63,10 +63,9 @@ public class LobbySocket extends TextWebSocketHandler {
     private final long workRewardWon;
     private final long sessionSeconds;
     private final double lunchEarlyReturnChance;
-    /** 비상 대출: 누구나 한 판에 한 번, 원하는 금액을 빌리고 퇴근 때 원금에 이자를 더해 뺀다. */
+    /** 비상 대출: 누구나 한 판에 한 번, 상한 안에서 원하는 금액을 빌리고 퇴근 때 원금에 이자를 더해 뺀다. */
     private final int loanInterestPercent;
-    /** 상한은 없지만, 금액 계산이 넘치지 않게 받아 주는 최대치(1,000조 원). 게임 규칙이 아니라 안전장치다. */
-    private static final long LOAN_TECHNICAL_MAX_WON = 1_000_000_000_000_000L;
+    private final long loanMaxWon;
     private final PlaytestLog playtest;
     private final StockCatalog catalog;
     private final NewsCatalog news;
@@ -78,7 +77,8 @@ public class LobbySocket extends TextWebSocketHandler {
             @Value("${game.work-reward-won}") long workRewardWon,
             @Value("${game.session-seconds}") long sessionSeconds,
             @Value("${game.lunch-early-return-chance}") double lunchEarlyReturnChance,
-            @Value("${game.loan-interest-percent}") int loanInterestPercent) {
+            @Value("${game.loan-interest-percent}") int loanInterestPercent,
+            @Value("${game.loan-max-won}") long loanMaxWon) {
         if (startingCashWon < 0 || workRewardWon <= 0 || sessionSeconds <= 0) {
             throw new IllegalArgumentException("시작 자금, 업무 수당, 근무 시간 설정을 확인하세요.");
         }
@@ -86,6 +86,8 @@ public class LobbySocket extends TextWebSocketHandler {
         this.lunchEarlyReturnChance = lunchEarlyReturnChance;
         if (loanInterestPercent < 0) throw new IllegalArgumentException("비상 대출 이자를 확인하세요.");
         this.loanInterestPercent = loanInterestPercent;
+        if (loanMaxWon <= 0) throw new IllegalArgumentException("비상 대출 상한을 확인하세요.");
+        this.loanMaxWon = loanMaxWon;
         this.startingCashWon = startingCashWon;
         this.workRewardWon = workRewardWon;
         this.json = json;
@@ -307,7 +309,7 @@ public class LobbySocket extends TextWebSocketHandler {
         }
         broadcast(lobby);
         for (var entry : lobby.clients.entrySet()) {
-            send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent)));
+            send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon)));
             sendDesk(entry.getValue(), lobby.desks.get(entry.getKey()));
         }
         broadcastMarket(lobby);
@@ -350,8 +352,8 @@ public class LobbySocket extends TextWebSocketHandler {
             throw new IllegalArgumentException("대출 금액은 원 단위 정수로 입력하세요.");
         }
         if (amount <= 0) throw new IllegalArgumentException("대출 금액은 1원 이상이어야 합니다.");
-        if (amount > LOAN_TECHNICAL_MAX_WON)
-            throw new IllegalArgumentException("처리할 수 있는 금액(1,000조 원)을 넘었습니다.");
+        if (amount > loanMaxWon)
+            throw new IllegalArgumentException("비상 대출은 최대 " + String.format("%,d", loanMaxWon) + "원까지 받을 수 있습니다.");
         // 원리금 = 원금 + 이자(올림).
         long repay = amount + (amount / 100 * loanInterestPercent
                 + (amount % 100 * loanInterestPercent + 99) / 100);
@@ -580,7 +582,7 @@ public class LobbySocket extends TextWebSocketHandler {
             log.info("방 {} {} 재접속", code, lobby.labels.getOrDefault(player, "대기실 참가자"));
             broadcast(lobby);
             if (!lobby.started()) return;
-            send(session, Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent)));
+            send(session, Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon)));
             sendDesk(session, lobby.desks.get(player));
             sendMyTrades(session, lobby, player);
             if (lobby.finished) {

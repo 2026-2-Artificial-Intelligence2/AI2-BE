@@ -503,11 +503,12 @@
     el('loan').hidden = !eligible;
   }
   el('loan').onclick = () => {
-    const input = prompt('얼마를 빌릴까요? (원, 한 판에 한 번)', '30000');
+    const input = prompt('얼마를 빌릴까요? (최대 ' + won(loanTerms.maxWon) + ', 한 판에 한 번)', String(loanTerms.maxWon));
     if (input === null) return;
     let amount;
     try { amount = BigInt(input.replace(/[,\s원]/g, '')); } catch { alert('금액은 숫자로 입력하세요.'); return; }
     if (amount <= 0n) { alert('1원 이상 입력하세요.'); return; }
+    if (amount > BigInt(loanTerms.maxWon)) { alert('최대 ' + won(loanTerms.maxWon) + '까지 빌릴 수 있습니다.'); return; }
     const percent = BigInt(loanTerms.interestPercent);
     const repay = amount + (amount * percent + 99n) / 100n;
     if (confirm(amount.toLocaleString('ko-KR') + '원을 빌리고 퇴근 때 ' + repay.toLocaleString('ko-KR') +
@@ -587,8 +588,8 @@
     } else if (message.type === 'catalog') {
       stocks = message.stocks;
       loanTerms = message.loan;
-      el('loan').textContent = '비상 대출 받기 (한 판에 한 번 · 금액 자유 · 퇴근 때 원금의 ' +
-        (100 + loanTerms.interestPercent) + '% 상환)';
+      el('loan').textContent = '비상 대출 받기 (한 판에 한 번 · 최대 ' + won(loanTerms.maxWon) +
+        ' · 퇴근 때 원금의 ' + (100 + loanTerms.interestPercent) + '% 상환)';
     } else if (message.type === 'notice') {
       showPopup('사내 소식 · ' + message.message, '');
       el('status').textContent = message.message;
