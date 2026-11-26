@@ -42,6 +42,7 @@
     <button id="leave">방 나가기</button>
   </section>
   <p id="clock" hidden></p>
+  <p id="lunch" role="status" hidden></p>
   <button id="switchView" hidden>주식 창 열기 (Tab)</button>
   <p id="meeting" role="status" hidden>부장님과 면담 중입니다.</p>
   <p id="balance" hidden></p>
@@ -311,6 +312,9 @@
     lastNewsNumber = 0;
     lastStep = -1;
     lastCoughBeat = -1;
+    el('lunch').hidden = true;
+    el('answer').disabled = false;
+    el('answerForm').querySelector('button').disabled = false;
     showView(null);
     el('news').hidden = true;
     el('news').textContent = '';
@@ -332,9 +336,28 @@
       (remainingSeconds <= 120 ? ' · 장 마감 직전, 시세가 크게 흔들립니다' : '');
   }
 
+  // 점심시간: 30초 전 공지, 점심 동안 남은 시간과 업무 창 잠김, 끝난 직후 5초 안내.
+  function renderLunch(startsIn, endsIn) {
+    const banner = el('lunch');
+    const lunchTime = startsIn <= 0 && endsIn > 0;
+    let text = '';
+    if (startsIn > 0 && startsIn <= 30) {
+      text = '사내 공지: ' + startsIn + '초 뒤 점심시간입니다. 부장님이 식사하러 자리를 비웁니다.';
+    } else if (lunchTime) {
+      text = '점심시간 · ' + clockText(endsIn) + ' 남음 · 부장님은 식사하러 나갔고 업무 창은 잠겨 있습니다.';
+    } else if (endsIn <= 0 && endsIn > -5) {
+      text = '점심시간이 끝났습니다. 다시 일할 시간입니다.';
+    }
+    banner.textContent = text;
+    banner.hidden = !text;
+    el('answer').disabled = lunchTime;
+    el('answerForm').querySelector('button').disabled = lunchTime;
+  }
+
   function renderResults({you, standings, trades}) {
     showView(null);
     el('clock').hidden = true;
+    el('lunch').hidden = true;
     el('news').hidden = true;
     clearTimeout(popupTimer);
     const body = el('standings');
@@ -365,9 +388,10 @@
     el('status').textContent = mine ? '퇴근했습니다. ' + mine.rank + '위 · 순자산 ' + won(mine.netWorthWon) : '퇴근했습니다.';
   }
 
-  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds, portfolio, coughBeat}) {
+  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds, portfolio, coughBeat, lunchStartsInSeconds, lunchEndsInSeconds}) {
     showView(view);
     renderClock(remainingSeconds);
+    renderLunch(lunchStartsInSeconds, lunchEndsInSeconds);
     pools = nextPools;
     holdingsNow = holdings;
     if (walking && lastStep !== beat) {

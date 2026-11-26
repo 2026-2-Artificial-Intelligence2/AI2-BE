@@ -74,6 +74,8 @@ final class Patrol {
     private int destination;
     private int direction;
     boolean walking;
+    /** 점심시간 등으로 부장님이 자리를 비웠는가. 비운 동안은 순찰·점검이 없고 의심도 오르지 않는다. */
+    private boolean away;
     /** 마지막으로 진행한 순찰 박자. 클라이언트가 같은 박자의 발소리를 두 번 재생하지 않게 한다. */
     long beat;
 
@@ -92,13 +94,30 @@ final class Patrol {
         seat.suspicion = Math.max(0, seat.suspicion - SUSPICION_PER_TASK);
     }
 
+    /**
+     * 부장님이 자리를 비우거나 돌아온다. 비우는 순간 하던 순찰을 그만두고, 돌아오면 모두의 업무 유예를
+     * 처음부터 다시 주고(비운 동안 업무를 못 했으므로) 곧 순찰을 시작한다.
+     */
+    void setAway(boolean nowAway, long tick) {
+        if (away == nowAway) return;
+        away = nowAway;
+        if (away) {
+            target = null;
+            walking = false;
+        } else {
+            for (var s : seats.values()) s.idleSeconds = 0;
+            nextWalk = tick + ThreadLocalRandom.current().nextInt(1, 3);
+        }
+    }
+
     void advance(long tick) {
         beat = tick;
         for (Seat s : seats.values()) {
             if (s.view == View.MEETING && tick >= s.returnTick) s.view = View.WORK;
-            if (s.present && s.view != View.MEETING) raiseSuspicion(s, tick);
+            if (!away && s.present && s.view != View.MEETING) raiseSuspicion(s, tick);
         }
         walking = false;
+        if (away) return;
         if (target == null && !seats.isEmpty()) {
             var summoned = summoned();
             if (summoned != null || tick >= nextWalk) {

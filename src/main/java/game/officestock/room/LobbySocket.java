@@ -42,6 +42,11 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final String MEMBERSHIP = "membership";
     /** 시작 전 대기실에서 연결이 끊긴 사람의 자리를 지켜 주는 시간. 넘으면 퇴장 처리한다. */
     private static final long LOBBY_GRACE_NANOS = TimeUnit.SECONDS.toNanos(60);
+    /** 점심시간은 근무 시간의 40% 지점에서 시작해 10% 동안. 15분 판이면 6:00~7:30. */
+    private static final double LUNCH_START_FRACTION = 0.4;
+    private static final double LUNCH_LENGTH_FRACTION = 0.1;
+    /** 일찍 복귀하면 공지된 점심 끝보다 이만큼 먼저 돌아온다. */
+    private static final long EARLY_RETURN_SECONDS = 20;
     /** 시작한 방에서 모두의 연결이 끊긴 채 이 시간이 지나면 방을 정리한다. */
     private static final long EMPTY_ROOM_GRACE_NANOS = TimeUnit.MINUTES.toNanos(5);
 
@@ -54,6 +59,7 @@ public class LobbySocket extends TextWebSocketHandler {
     private final long startingCashWon;
     private final long workRewardWon;
     private final long sessionSeconds;
+    private final double lunchEarlyReturnChance;
     private final PlaytestLog playtest;
     private final StockCatalog catalog;
     private final NewsCatalog news;
@@ -63,11 +69,13 @@ public class LobbySocket extends TextWebSocketHandler {
     public LobbySocket(ObjectMapper json, PlaytestLog playtest, StockCatalog catalog, NewsCatalog news,
             @Value("${game.starting-cash-won}") long startingCashWon,
             @Value("${game.work-reward-won}") long workRewardWon,
-            @Value("${game.session-seconds}") long sessionSeconds) {
+            @Value("${game.session-seconds}") long sessionSeconds,
+            @Value("${game.lunch-early-return-chance}") double lunchEarlyReturnChance) {
         if (startingCashWon < 0 || workRewardWon <= 0 || sessionSeconds <= 0) {
             throw new IllegalArgumentException("시작 자금, 업무 수당, 근무 시간 설정을 확인하세요.");
         }
         this.sessionSeconds = sessionSeconds;
+        this.lunchEarlyReturnChance = lunchEarlyReturnChance;
         this.startingCashWon = startingCashWon;
         this.workRewardWon = workRewardWon;
         this.json = json;
@@ -109,6 +117,18 @@ public class LobbySocket extends TextWebSocketHandler {
         long tick;
         boolean finished;
         Thread marketClock;
+        /** 공지된 점심시간 [시작, 끝)과 부장님이 실제로 돌아오는 틱(일찍 복귀하면 끝보다 이르다). */
+        long lunchStartTick;
+        long lunchEndTick;
+        long bossReturnTick;
+
+        boolean lunchTime() {
+            return tick >= lunchStartTick && tick < lunchEndTick;
+        }
+
+        boolean bossAway() {
+            return tick >= lunchStartTick && tick < bossReturnTick;
+        }
 
         Lobby(String code, UUID host, Market market, long sessionSeconds) {
             this.code = code;
@@ -224,6 +244,14 @@ public class LobbySocket extends TextWebSocketHandler {
 
     private void start(Lobby lobby, UUID requester) throws IOException {
         lobby.game.start(requester, Instant.now());
+        lobby.lunchStartTick = Math.round(lobby.sessionTicks * LUNCH_START_FRACTION);
+        lobby.lunchEndTick = lobby.lunchStartTick + Math.round(lobby.sessionTicks * LUNCH_LENGTH_FRACTION);
+        boolean early = random.nextDouble() < lunchEarlyReturnChance;
+        lobby.bossReturnTick = early
+                ? Math.max(lobby.lunchStartTick, lobby.lunchEndTick - EARLY_RETURN_SECONDS / Market.TICK_SECONDS)
+                : lobby.lunchEndTick;
+        log.info("방 {} 점심 {}~{}초, 부장님 {}", lobby.logName(), lobby.lunchStartTick * Market.TICK_SECONDS,
+                lobby.lunchEndTick * Market.TICK_SECONDS, early ? "일찍 복귀" : "제때 복귀");
         var players = lobby.game.snapshot().players();
         lobby.patrol.start(players);
         long now = System.nanoTime();
@@ -252,6 +280,7 @@ public class LobbySocket extends TextWebSocketHandler {
         var desk = member.lobby().desks.get(member.player());
         if (desk == null) throw new IllegalStateException("게임 시작 후 업무를 제출하세요.");
         if (member.lobby().patrol.seats.get(member.player()).view != Patrol.View.WORK) throw new IllegalStateException("업무 창에서 제출하세요.");
+        if (member.lobby().lunchTime()) throw new IllegalStateException("점심시간에는 업무 창이 잠겨 있습니다.");
         var fields = command.split("\\s+");
         if (fields.length != 3) throw new IllegalArgumentException("업무 번호와 답을 입력하세요.");
         WorkDesk.TaskTiming timing;
@@ -345,6 +374,7 @@ public class LobbySocket extends TextWebSocketHandler {
     private void advanceMarket(Lobby lobby) {
         lobby.tick++;
         if (lobby.tick % TICKS_PER_PATROL_BEAT == 0) {
+            lobby.patrol.setAway(lobby.bossAway(), lobby.tick / TICKS_PER_PATROL_BEAT);
             lobby.patrol.advance(lobby.tick / TICKS_PER_PATROL_BEAT);
             // 훈계 시작·종료는 순찰 박자에 일어나므로 이때 업무 시간 기록에 화면 상태를 알린다.
             // 연결이 끊긴 사람은 업무 시간에 넣지 않는다.
@@ -352,7 +382,8 @@ public class LobbySocket extends TextWebSocketHandler {
             lobby.desks.forEach((id, desk) -> {
                 var seat = lobby.patrol.seats.get(id);
                 if (seat != null) {
-                    desk.observeView(seat.view == Patrol.View.WORK && lobby.clients.containsKey(id), now);
+                    desk.observeView(seat.view == Patrol.View.WORK && lobby.clients.containsKey(id)
+                            && !lobby.lunchTime(), now);
                 }
             });
         }
@@ -409,6 +440,8 @@ public class LobbySocket extends TextWebSocketHandler {
                     Map.entry("walking", lobby.patrol.walking),
                     Map.entry("step", lobby.patrol.step(seat)),
                     Map.entry("coughBeat", seat.coughBeat),
+                    Map.entry("lunchStartsInSeconds", (lobby.lunchStartTick - lobby.tick) * Market.TICK_SECONDS),
+                    Map.entry("lunchEndsInSeconds", (lobby.lunchEndTick - lobby.tick) * Market.TICK_SECONDS),
                     Map.entry("remainingSeconds",
                             (lobby.sessionTicks - lobby.tick) * Market.TICK_SECONDS)));
         }
