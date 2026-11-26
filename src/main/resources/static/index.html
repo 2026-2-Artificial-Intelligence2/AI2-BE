@@ -16,6 +16,18 @@
     color: white;
     pointer-events: none;
   }
+  #news strong { display: block; }
+  #chatLog { max-height: 14rem; overflow-y: auto; padding-left: 1.2rem; }
+  #chatLog .whisper { color: #6a1b9a; }
+  /* 팝업 본문은 한 줄만 보이고, 넘치면 …로 줄인다. 전체는 알림창에서 읽는다. */
+  #news .body {
+    display: block;
+    margin-top: .25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: .85;
+  }
 </style>
 <main>
   <h1>부장님 몰래</h1>
@@ -28,11 +40,24 @@
   <section id="lobby" hidden>
     <h2 id="roomTitle"></h2>
     <p id="players"></p>
+    <label id="lengthBox" hidden>근무 시간
+      <select id="length">
+        <option value="300">5분</option>
+        <option value="600">10분</option>
+        <option value="900">15분</option>
+        <option value="1200">20분</option>
+      </select>
+    </label>
     <button id="start" hidden>게임 시작</button>
+    <button id="leave">방 나가기</button>
   </section>
+  <p id="clock" hidden></p>
+  <p id="lunch" role="status" hidden></p>
   <button id="switchView" hidden>주식 창 열기 (Tab)</button>
+  <button id="openMessenger" hidden>메신저</button>
   <p id="meeting" role="status" hidden>부장님과 면담 중입니다.</p>
   <p id="balance" hidden></p>
+  <p><button id="loan" hidden></button></p>
   <p id="news" role="status" hidden></p>
   <details id="inbox" hidden>
     <summary>뉴스 알림창</summary>
@@ -56,9 +81,10 @@
   <section id="market" hidden>
     <h2>주식 거래</h2>
     <table>
-      <thead><tr><th>종목</th><th>기준가</th><th>내 보유량</th></tr></thead>
+      <thead><tr><th>종목</th><th>기준가</th><th>내 보유량</th><th>평균 매수가</th><th>청산가</th><th>손익</th></tr></thead>
       <tbody id="quotes"></tbody>
     </table>
+    <p id="profitSummary"></p>
     <form id="order">
       <label>종목 <select id="symbol"></select></label>
       <label>수량 <input id="quantity" type="number" min="1" step="1" value="1" required></label>
@@ -67,6 +93,46 @@
     </form>
     <p id="estimate" aria-live="polite"></p>
     <p id="fill" role="status"></p>
+    <details id="myTradesBox">
+      <summary>내 거래 내역</summary>
+      <p id="myTradesEmpty">아직 거래가 없습니다.</p>
+      <table>
+        <thead><tr><th>시각</th><th>종목</th><th>구분</th><th>수량</th><th>금액</th><th>주당</th></tr></thead>
+        <tbody id="myTrades"></tbody>
+      </table>
+    </details>
+  </section>
+  <section id="messenger" hidden>
+    <h2>사내 메신저</h2>
+    <ol id="chatLog"></ol>
+    <form id="chatForm">
+      <label>받는 사람 <select id="chatTo"><option value="ALL">전체</option></select></label>
+      <input id="chatText" maxlength="200" autocomplete="off" placeholder="메시지 (200자)">
+      <button>보내기</button>
+    </form>
+    <form id="leakForm" hidden>
+      <label>익명 찌라시 <input id="leakText" maxlength="60" autocomplete="off" placeholder="한 판에 한 번 · 60자 · 누가 뿌렸는지는 퇴근 뒤 공개"></label>
+      <button>뿌리기</button>
+    </form>
+    <p id="chatStatus" role="status"></p>
+  </section>
+  <section id="results" hidden>
+    <h2>퇴근! 최종 순위</h2>
+    <p><button id="restart" hidden>같은 방에서 다시 하기</button>
+      <span id="restartNote" hidden>방장이 다시 하기를 누르면 같은 방의 대기실로 돌아갑니다.</span></p>
+    <table>
+      <thead><tr><th>순위</th><th>직원</th><th>순자산</th><th>현금</th><th>주식 청산가</th><th>대출 상환</th><th>업무 수당</th><th>보유 주식</th></tr></thead>
+      <tbody id="standings"></tbody>
+    </table>
+    <p>주식은 퇴근 순간 혼자 전부 팔았을 때 받을 금액으로 평가합니다.</p>
+    <h3>익명 찌라시의 주인</h3>
+    <ul id="leaks"></ul>
+    <h3>매매 기록</h3>
+    <p id="tradesEmpty" hidden>이번 판에는 아무도 주식을 거래하지 않았습니다.</p>
+    <table>
+      <thead><tr><th>시각</th><th>직원</th><th>종목</th><th>구분</th><th>수량</th><th>금액</th></tr></thead>
+      <tbody id="trades"></tbody>
+    </table>
   </section>
   <p id="status" role="status">연결 중…</p>
 </main>
@@ -74,14 +140,40 @@
   const el = id => document.getElementById(id);
   const url = new URL('/ws/lobby', location.href);
   url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const socket = new WebSocket(url);
-  socket.onopen = () => {
-    el('entry').disabled = false;
-    el('status').textContent = '친구에게 받은 코드로 입장하거나 방을 만드세요.';
-  };
+  // 재접속: 서버가 준 열쇠를 이 탭에만 기억한다(sessionStorage). 새로고침이나 연결 끊김 뒤 같은 자리로 돌아간다.
+  // 탭마다 따로라서 한 브라우저의 여러 탭으로 여러 명을 테스트할 수 있다.
+  const SEAT_KEY = 'officeStockSeat';
+  const savedSeat = () => JSON.parse(sessionStorage.getItem(SEAT_KEY) ?? 'null');
+  let socket;
+  let resuming = false;
+  let replaced = false;
+  let retries = 0;
+  function connect() {
+    socket = new WebSocket(url);
+    socket.onopen = () => {
+      retries = 0;
+      const seat = savedSeat();
+      if (seat) {
+        resuming = true;
+        el('status').textContent = '자리로 돌아가는 중…';
+        socket.send('RESUME ' + seat.code + ' ' + seat.token);
+      } else {
+        el('entry').disabled = false;
+        el('status').textContent = '친구에게 받은 코드로 입장하거나 방을 만드세요.';
+      }
+    };
+    socket.onmessage = onMessage;
+    socket.onclose = onClose;
+  }
   el('create').onclick = () => socket.send('CREATE');
   el('join').onclick = () => socket.send('JOIN ' + el('code').value.trim());
   el('start').onclick = () => socket.send('START');
+  el('restart').onclick = () => socket.send('RESTART');
+  el('length').onchange = () => socket.send('LENGTH ' + Number(el('length').value) / 60);
+  let isHost = false;
+  el('leave').onclick = () => {
+    if (confirm('방에서 나갈까요? 게임 중이면 이번 판 기록이 사라집니다.')) socket.send('LEAVE');
+  };
   let taskNumber = null;
   let audio;
   let lastStep = -1;
@@ -117,18 +209,105 @@
       sound.onended = () => { sound.disconnect(); gain.disconnect(); pan.disconnect(); };
     }
   }
+  // 부장님 헛기침: 의심이 70을 넘는 순간 그 사람에게만, 부장님이 있는 쪽에서 들린다. "흠, 흠" 두 번.
+  let lastCoughBeat = -1;
+  function cough({to, listener}) {
+    if (audio?.state !== 'running') return;
+    const x = to.x - listener.position.x;
+    const z = to.z - listener.position.z;
+    const length = Math.floor(audio.sampleRate * 0.22);
+    const noise = audio.createBuffer(1, length, audio.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    for (const delay of [0, 0.35]) {
+      const t = audio.currentTime + delay;
+      const source = new AudioBufferSourceNode(audio, {buffer: noise});
+      const voice = new BiquadFilterNode(audio, {type: 'bandpass', frequency: 520, Q: 1.4});
+      const gain = audio.createGain();
+      const pan = new PannerNode(audio, {
+        panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 1,
+        positionX: -listener.forwardZ * x, positionY: 0.6, positionZ: -listener.forwardZ * z
+      });
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.55, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      source.connect(voice).connect(gain).connect(pan).connect(audio.destination);
+      source.start(t);
+      source.stop(t + 0.22);
+      source.onended = () => { source.disconnect(); voice.disconnect(); gain.disconnect(); pan.disconnect(); };
+    }
+  }
+
   function showView(view) {
-    const seated = view === 'WORK' || view === 'MARKET';
+    const seated = view === 'WORK' || view === 'MARKET' || view === 'MESSENGER';
+    currentView = view;
     el('work').hidden = view !== 'WORK';
     el('market').hidden = view !== 'MARKET';
     el('meeting').hidden = view !== 'MEETING';
     el('switchView').hidden = el('balance').hidden = el('inbox').hidden = !seated;
+    seatedNow = seated;
+    renderLoan();
     el('switchView').textContent = view === 'WORK' ? '주식 창 열기 (Tab)' : '업무 창 열기 (Tab)';
     if (!seated) {
       el('inbox').open = false;
       el('news').hidden = true;
     }
+    updateMessenger();
   }
+
+  // 사내 메신저. 대기실과 퇴근 뒤에는 늘 보이고, 게임 중에는 메신저 창을 열었을 때만 보인다.
+  // 메신저 창을 보다가 부장님에게 들키면 훈계다. 다른 창에서는 새 메시지 개수만 보인다.
+  let phase = 'out';          // out(방 밖) · lobby(대기실) · playing · finished
+  let currentView = null;
+  let youLabel = null;
+  let unread = 0;
+  let leakUsed = false;
+  function updateMessenger() {
+    const show = phase === 'lobby' || phase === 'finished' || (phase === 'playing' && currentView === 'MESSENGER');
+    el('messenger').hidden = !show;
+    if (show) unread = 0;
+    el('leakForm').hidden = !(phase === 'playing' && currentView === 'MESSENGER' && !leakUsed);
+    const button = el('openMessenger');
+    button.hidden = !(phase === 'playing' && seatedNow && currentView !== 'MESSENGER');
+    button.textContent = '메신저' + (unread ? ' (새 메시지 ' + unread + ')' : '');
+  }
+  function appendChat(m) {
+    const row = document.createElement('li');
+    const time = m.second >= 0 ? '[' + clockText(m.second) + '] ' : '';
+    row.textContent = time + m.from + (m.to ? ' → ' + m.to + ' (귓속말)' : '') + ': ' + m.text;
+    if (m.to) row.className = 'whisper';
+    const log = el('chatLog');
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+    log.append(row);
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+  function renderMembers(members) {
+    const select = el('chatTo');
+    const chosen = select.value;
+    select.replaceChildren(new Option('전체', 'ALL'));
+    for (const m of members) {
+      if (m.label === youLabel) continue;
+      select.add(new Option(m.label + (m.host ? ' (방장)' : '') + (m.online ? '' : ' · 연결 끊김'), m.label));
+    }
+    select.value = [...select.options].some(o => o.value === chosen) ? chosen : 'ALL';
+  }
+  el('openMessenger').onclick = () => socket.send('MESSENGER');
+  el('chatForm').onsubmit = event => {
+    event.preventDefault();
+    const text = el('chatText').value.trim();
+    if (!text || socket.readyState !== WebSocket.OPEN) return;
+    socket.send('CHAT ' + el('chatTo').value + ' ' + text);
+    el('chatText').value = '';
+  };
+  el('leakForm').onsubmit = event => {
+    event.preventDefault();
+    const text = el('leakText').value.trim();
+    if (!text) return;
+    if (confirm('이 문장을 익명 찌라시로 모두에게 뿌릴까요? (한 판에 한 번)\n' + text)) {
+      socket.send('LEAK ' + text);
+      el('leakText').value = '';
+    }
+  };
   el('switchView').onclick = () => socket.send('SWITCH');
   document.addEventListener('keydown', event => {
     if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey ||
@@ -137,6 +316,10 @@
     if (!event.repeat) socket.send('SWITCH');
   });
   const won = value => value.toLocaleString('ko-KR') + '원';
+  const signedWon = value => (value > 0 ? '+' : '') + won(value);
+  const signedPercent = value => (value > 0 ? '+' : '') + value.toFixed(1) + '%';
+  // 한국 증시 관례대로 이익은 빨강, 손실은 파랑.
+  const profitColor = value => value > 0 ? '#c62828' : value < 0 ? '#1565c0' : '';
   el('order').onsubmit = event => {
     event.preventDefault();
     const side = event.submitter?.value;
@@ -150,6 +333,9 @@
   // 서버 StockPool과 같은 계산: 풀에 남는 현금을 올림하므로 매수 대금은 올림, 매도 대금은 내림.
   let pools = {};
   let holdingsNow = {};
+  // 서버는 종목을 코드(MINT 등)로 주고받는다. 화면에는 catalog 메시지로 받은 이름을 보여준다.
+  let stocks = [];
+  const stockName = id => stocks.find(s => s.id === id)?.name ?? id;
   let cashNow = 0n;
   const ceilDiv = (a, b) => (a + b - 1n) / b;
   function quote(symbol, quantity) {
@@ -195,7 +381,15 @@
     for (const item of [...items].reverse()) {
       const row = document.createElement('li');
       row.value = item.number;
-      row.textContent = newsLabel(item.kind) + item.headline;
+      const title = document.createElement('strong');
+      title.textContent = newsLabel(item.kind) + item.headline;
+      row.append(title);
+      if (item.body) {
+        const body = document.createElement('p');
+        body.textContent = item.body;
+        body.style.margin = '.25rem 0 .75rem';
+        row.append(body);
+      }
       list.append(row);
     }
   }
@@ -204,6 +398,10 @@
     clearTimeout(popupTimer);
     lastNewsNumber = 0;
     lastStep = -1;
+    lastCoughBeat = -1;
+    el('lunch').hidden = true;
+    el('answer').disabled = false;
+    el('answerForm').querySelector('button').disabled = false;
     showView(null);
     el('news').hidden = true;
     el('news').textContent = '';
@@ -212,12 +410,102 @@
     el('historyList').replaceChildren();
     el('historyStatus').textContent = '';
     el('estimate').textContent = '';
+    el('clock').hidden = true;
     pools = {};
     holdingsNow = {};
   }
 
-  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsNumber, view, beat, walking, step}) {
+  const clockText = seconds => Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+  function renderClock(remainingSeconds) {
+    const clock = el('clock');
+    clock.hidden = false;
+    clock.textContent = '퇴근까지 ' + clockText(remainingSeconds) +
+      (remainingSeconds <= 120 ? ' · 장 마감 직전, 시세가 크게 흔들립니다' : '');
+  }
+
+  // 점심시간: 30초 전 공지, 점심 동안 남은 시간과 업무 창 잠김, 끝난 직후 5초 안내.
+  function renderLunch(startsIn, endsIn) {
+    const banner = el('lunch');
+    const lunchTime = startsIn <= 0 && endsIn > 0;
+    let text = '';
+    if (startsIn > 0 && startsIn <= 30) {
+      text = '사내 공지: ' + startsIn + '초 뒤 점심시간입니다. 부장님이 식사하러 자리를 비웁니다.';
+    } else if (lunchTime) {
+      text = '점심시간 · ' + clockText(endsIn) + ' 남음 · 부장님은 식사하러 나갔고 업무 창은 잠겨 있습니다.';
+    } else if (endsIn <= 0 && endsIn > -5) {
+      text = '점심시간이 끝났습니다. 다시 일할 시간입니다.';
+    }
+    banner.textContent = text;
+    banner.hidden = !text;
+    el('answer').disabled = lunchTime;
+    el('answerForm').querySelector('button').disabled = lunchTime;
+  }
+
+  function renderResults({you, standings, trades, leaks}) {
+    phase = 'finished';
+    showView(null);
+    const leakList = el('leaks');
+    leakList.replaceChildren();
+    for (const l of leaks) {
+      const li = document.createElement('li');
+      li.textContent = l.player + (l.player === you ? ' (나)' : '') + ': "' + l.text + '"';
+      leakList.append(li);
+    }
+    if (!leaks.length) leakList.append(Object.assign(document.createElement('li'), {textContent: '이번 판에는 아무도 뿌리지 않았습니다.'}));
+    el('clock').hidden = true;
+    el('lunch').hidden = true;
+    el('news').hidden = true;
+    clearTimeout(popupTimer);
+    const body = el('standings');
+    body.replaceChildren();
+    for (const row of standings) {
+      const tr = body.insertRow();
+      const holdings = Object.entries(row.holdings).map(([s, q]) => stockName(s) + ' ' + q + '주').join(', ') || '없음';
+      for (const text of [row.rank + '위', row.player + (row.player === you ? ' (나)' : ''),
+          won(row.netWorthWon), won(row.cashWon), won(row.stockValueWon),
+          row.loanRepayWon ? '-' + won(row.loanRepayWon) : '-',
+          won(row.workIncomeWon) + ' (' + row.completedTasks + '건)', holdings]) {
+        tr.insertCell().textContent = text;
+      }
+      if (row.player === you) tr.style.fontWeight = 'bold';
+    }
+    const log = el('trades');
+    log.replaceChildren();
+    el('tradesEmpty').hidden = trades.length > 0;
+    for (const t of trades) {
+      const tr = log.insertRow();
+      for (const text of [clockText(t.second), t.player, stockName(t.symbol), t.side, t.quantity + '주', won(t.amountWon)]) {
+        tr.insertCell().textContent = text;
+      }
+    }
+    el('restart').hidden = !isHost;
+    el('restartNote').hidden = isHost;
+    el('results').hidden = false;
+    const mine = standings.find(row => row.player === you);
+    el('status').textContent = mine ? '퇴근했습니다. ' + mine.rank + '위 · 순자산 ' + won(mine.netWorthWon) : '퇴근했습니다.';
+  }
+
+  // 데스크톱 알림 팝업: 제목과 본문 첫 줄(넘치면 …). 본문이 있으면 5초, 없으면 4초.
+  function showPopup(titleText, bodyText) {
+    const news = el('news');
+    const title = document.createElement('strong');
+    title.textContent = titleText;
+    news.replaceChildren(title);
+    if (bodyText) {
+      const line = document.createElement('span');
+      line.className = 'body';
+      line.textContent = bodyText;
+      news.append(line);
+    }
+    news.hidden = false;
+    clearTimeout(popupTimer);
+    popupTimer = setTimeout(() => { news.hidden = true; }, bodyText ? 5000 : 4000);
+  }
+
+  function renderMarket({prices, pools: nextPools, holdings, headline, newsKind, newsBody, newsNumber, view, beat, walking, step, remainingSeconds, portfolio, coughBeat, lunchStartsInSeconds, lunchEndsInSeconds}) {
     showView(view);
+    renderClock(remainingSeconds);
+    renderLunch(lunchStartsInSeconds, lunchEndsInSeconds);
     pools = nextPools;
     holdingsNow = holdings;
     if (walking && lastStep !== beat) {
@@ -226,26 +514,48 @@
     }
     const news = el('news');
     el('inbox').hidden = false;
+    // 재접속 직후에는 이미 지나간 속보를 다시 띄우지 않는다. 지난 뉴스는 알림창에 있다.
+    if (resuming) {
+      resuming = false;
+      lastNewsNumber = Math.max(lastNewsNumber, newsNumber);
+      lastCoughBeat = Math.max(lastCoughBeat, coughBeat);
+    }
+    if (coughBeat > lastCoughBeat) {
+      lastCoughBeat = coughBeat;
+      cough(step);
+    }
     if (newsNumber > lastNewsNumber) {
       lastNewsNumber = newsNumber;
-      news.textContent = newsLabel(newsKind) + headline;
-      news.hidden = false;
-      clearTimeout(popupTimer);
-      popupTimer = setTimeout(() => { news.hidden = true; }, 4000);
+      showPopup(newsLabel(newsKind) + headline, newsBody);
       requestHistory();
     }
-    const symbols = Object.keys(prices).sort((a, b) => a.localeCompare(b, 'ko'));
+    const symbols = stocks.map(s => s.id).filter(id => id in prices);
     const select = el('symbol');
     if (select.options.length === 0) {
-      for (const symbol of symbols) select.add(new Option(symbol, symbol));
+      for (const symbol of symbols) select.add(new Option(stockName(symbol), symbol));
     }
     el('quotes').replaceChildren();
     for (const symbol of symbols) {
       const row = el('quotes').insertRow();
-      row.insertCell().textContent = symbol;
+      row.insertCell().textContent = stockName(symbol);
       row.insertCell().textContent = won(prices[symbol]);
       row.insertCell().textContent = (holdings[symbol] ?? 0) + '주';
+      const position = portfolio.positions[symbol];
+      row.insertCell().textContent = position ? won(position.avgPriceWon) : '-';
+      row.insertCell().textContent = position ? won(position.valueWon) : '-';
+      const profit = row.insertCell();
+      if (position) {
+        profit.textContent = signedWon(position.profitWon) + ' (' + signedPercent(position.profitPercent) + ')';
+        profit.style.color = profitColor(position.profitWon);
+      } else {
+        profit.textContent = '-';
+      }
     }
+    stockValueNow = Object.values(portfolio.positions).reduce((sum, p) => sum + p.valueWon, 0);
+    renderLoan();
+    const open = Object.values(portfolio.positions).reduce((sum, p) => sum + p.profitWon, 0);
+    el('profitSummary').textContent = '보유 주식 손익 ' + signedWon(open) + ' · 판 주식에서 확정된 손익 ' +
+      signedWon(portfolio.realizedWon) + ' (청산가는 지금 혼자 전부 팔면 받을 금액이며, 퇴근 정산도 이 값으로 합니다)';
     renderEstimate();
   }
   el('answerForm').onsubmit = event => {
@@ -254,31 +564,148 @@
       socket.send('WORK ' + taskNumber + ' ' + el('answer').value);
     }
   };
-  socket.onmessage = event => {
+  function renderMyTrades(trades) {
+    const body = el('myTrades');
+    body.replaceChildren();
+    el('myTradesEmpty').hidden = trades.length > 0;
+    for (const t of [...trades].reverse()) {
+      const tr = body.insertRow();
+      for (const text of [clockText(t.second), stockName(t.symbol), t.side, t.quantity + '주',
+          won(t.amountWon), won(Math.round(t.amountWon / t.quantity))]) {
+        tr.insertCell().textContent = text;
+      }
+    }
+  }
+
+  // 비상 대출: 누구나 한 판에 한 번, 금액은 직접 입력한다. 아직 안 받았을 때만 버튼을 보여준다.
+  let loanTerms = null;
+  let stockValueNow = 0;
+  let loanRepayNow = 0;
+  let seatedNow = false;
+  function renderLoan() {
+    const eligible = loanTerms && seatedNow && !loanRepayNow;
+    el('loan').hidden = !eligible;
+  }
+  el('loan').onclick = () => {
+    const input = prompt('얼마를 빌릴까요? (최대 ' + won(loanTerms.maxWon) + ', 한 판에 한 번)', String(loanTerms.maxWon));
+    if (input === null) return;
+    let amount;
+    try { amount = BigInt(input.replace(/[,\s원]/g, '')); } catch { alert('금액은 숫자로 입력하세요.'); return; }
+    if (amount <= 0n) { alert('1원 이상 입력하세요.'); return; }
+    if (amount > BigInt(loanTerms.maxWon)) { alert('최대 ' + won(loanTerms.maxWon) + '까지 빌릴 수 있습니다.'); return; }
+    const percent = BigInt(loanTerms.interestPercent);
+    const repay = amount + (amount * percent + 99n) / 100n;
+    if (confirm(amount.toLocaleString('ko-KR') + '원을 빌리고 퇴근 때 ' + repay.toLocaleString('ko-KR') +
+        '원을 갚습니다.\n받으면 금액이 모두에게 알려집니다.')) {
+      socket.send('LOAN ' + amount);
+    }
+  };
+
+  function resetGameView() {
+    leakUsed = false;
+    el('chatStatus').textContent = '';
+    loanRepayNow = 0;
+    stockValueNow = 0;
+    renderMyTrades([]);
+    el('profitSummary').textContent = '';
+    clearNews();
+    el('results').hidden = true;
+    el('market').hidden = true;
+    el('work').hidden = true;
+    el('fill').textContent = '';
+    el('answer').value = '';
+    el('symbol').replaceChildren();
+    taskNumber = null;
+  }
+
+  function backToEntry() {
+    phase = 'out';
+    el('chatLog').replaceChildren();
+    updateMessenger();
+    sessionStorage.removeItem(SEAT_KEY);
+    clearNews();
+    el('market').hidden = true;
+    el('fill').textContent = '';
+    el('symbol').replaceChildren();
+    taskNumber = null;
+    el('work').hidden = true;
+    el('answer').value = '';
+    el('lobby').hidden = true;
+    el('entry').hidden = false;
+    el('entry').disabled = false;
+  }
+
+  function onMessage(event) {
     const message = JSON.parse(event.data);
     if (message.type === 'state') {
-      const {room, code, you} = message;
+      const {room, code, you, token, offline, round, sessionSeconds, members} = message;
+      youLabel = message.youLabel;
+      renderMembers(members);
+      phase = !room.startedAt ? 'lobby' : phase === 'finished' ? 'finished' : 'playing';
+      updateMessenger();
+      sessionStorage.setItem(SEAT_KEY, JSON.stringify({code, token}));
+      isHost = you === room.hostId;
+      // 대기 상태(새 방이거나 다시 하기)면 지난 판 화면을 치운다. 퇴근 뒤 누가 나가도 결과는 남는다.
+      if (!room.startedAt) resetGameView();
       el('entry').hidden = true;
       el('lobby').hidden = false;
-      el('roomTitle').textContent = '초대 코드 ' + code;
-      el('players').textContent = '참가자 ' + room.players.length + ' / 4명';
+      el('roomTitle').textContent = '초대 코드 ' + code + (round > 1 ? ' · ' + round + '번째 판' : '');
+      el('players').textContent = '참가자 ' + room.players.length + ' / 4명' +
+        (offline.length ? ' · 연결 끊김 ' + offline.length + '명(돌아오면 그대로 이어서 합니다)' : '');
       el('start').hidden = you !== room.hostId || Boolean(room.startedAt);
+      // 근무 시간: 대기실에서만 보인다. 방장만 바꿀 수 있고, 목록에 없는 길이(테스트 설정 등)는 그대로 보여준다.
+      const length = el('length');
+      if (![...length.options].some(o => Number(o.value) === sessionSeconds)) {
+        length.add(new Option(sessionSeconds % 60 ? sessionSeconds + '초' : sessionSeconds / 60 + '분', sessionSeconds));
+      }
+      length.value = String(sessionSeconds);
+      length.disabled = you !== room.hostId;
+      el('lengthBox').hidden = Boolean(room.startedAt);
       el('start').disabled = room.players.length < 2;
-      el('status').textContent = room.startedAt
+      // 퇴근 뒤 누가 나가 참가자 수가 바뀌어도 결과 문구는 그대로 둔다.
+      if (el('results').hidden) el('status').textContent = room.startedAt
         ? '게임 시작 · ' + new Date(room.startedAt).toLocaleTimeString('ko-KR')
         : '시작 대기 중';
     } else if (message.type === 'view') {
       showView(message.view);
     } else if (message.type === 'meeting') {
       lastNewsNumber = Math.max(lastNewsNumber, message.newsNumber);
+      el('meeting').textContent = {
+        idle: '부장님: "아까부터 올라오는 일이 하나도 없던데, 뭐 하고 있었어?" (업무 방치로 면담 중)',
+        messenger: '부장님: "근무 시간에 메신저로 수다야?" (메신저 창을 들켜 면담 중)'
+      }[message.reason] ?? '부장님: "근무 시간에 주식이야?" (주식 창을 들켜 면담 중)';
       showView('MEETING');
     } else if (message.type === 'market') {
       renderMarket(message);
+    } else if (message.type === 'chat') {
+      appendChat(message.message);
+      if (el('messenger').hidden && message.message.from !== youLabel) unread++;
+      updateMessenger();
+    } else if (message.type === 'chatHistory') {
+      el('chatLog').replaceChildren();
+      message.messages.forEach(appendChat);
+      el('chatLog').scrollTop = el('chatLog').scrollHeight;
+    } else if (message.type === 'leakSent') {
+      leakUsed = true;
+      el('chatStatus').textContent = message.message;
+      updateMessenger();
+    } else if (message.type === 'myTrades') {
+      renderMyTrades(message.trades);
+    } else if (message.type === 'catalog') {
+      stocks = message.stocks;
+      loanTerms = message.loan;
+      el('loan').textContent = '비상 대출 받기 (한 판에 한 번 · 최대 ' + won(loanTerms.maxWon) +
+        ' · 퇴근 때 원금의 ' + (100 + loanTerms.interestPercent) + '% 상환)';
+    } else if (message.type === 'notice') {
+      showPopup('사내 소식 · ' + message.message, '');
+      el('status').textContent = message.message;
+    } else if (message.type === 'result') {
+      renderResults(message);
     } else if (message.type === 'newsHistory') {
       renderHistory(message.items);
     } else if (message.type === 'fill') {
       el('fill').textContent =
-        message.symbol + ' ' + message.quantity + '주 ' + message.side +
+        stockName(message.symbol) + ' ' + message.quantity + '주 ' + message.side +
         ' 체결 · 총 ' + won(message.amount);
     } else if (message.type === 'work') {
       const {task, balance, rewardWon} = message.desk;
@@ -286,8 +713,11 @@
       taskNumber = task.number;
       cashNow = BigInt(balance.cashWon);
       renderEstimate();
+      loanRepayNow = balance.loanRepayWon;
       el('balance').textContent =
-        '내 현금 ' + won(balance.cashWon) + ' · 누적 업무 수당 ' + won(balance.workIncomeWon);
+        '내 현금 ' + won(balance.cashWon) + ' · 누적 업무 수당 ' + won(balance.workIncomeWon) +
+        (balance.loanRepayWon ? ' · 퇴근 때 대출 상환 ' + won(balance.loanRepayWon) : '');
+      renderLoan();
       el('taskTitle').textContent = '업무 ' + task.number + ' · 완료 수당 ' + won(rewardWon);
       el('a1').textContent = task.a1;
       el('a2').textContent = task.a2;
@@ -297,28 +727,30 @@
         el('answer').focus();
       }
     } else {
+      if (message.type === 'closed' || message.type === 'resumeFailed') backToEntry();
+      if (message.type === 'replaced') replaced = true;
       el('status').textContent = message.message;
-      if (message.type === 'closed') {
-        clearNews();
-        el('market').hidden = true;
-        el('fill').textContent = '';
-        el('symbol').replaceChildren();
-        taskNumber = null;
-        el('work').hidden = true;
-        el('answer').value = '';
-        el('lobby').hidden = true;
-        el('entry').hidden = false;
-      }
     }
-  };
-  socket.onclose = () => {
+  }
+
+  function onClose() {
+    // 자리가 있으면 화면을 그대로 둔 채 다시 연결한다. 다른 창이 자리를 가져갔으면 다시 붙지 않는다.
+    if (savedSeat() && !replaced && retries < 30) {
+      retries++;
+      const delay = Math.min(1000 * 2 ** (retries - 1), 10_000);
+      el('status').textContent = '연결이 끊겼습니다. 다시 연결하는 중… (' + retries + '번째)';
+      setTimeout(connect, delay);
+      return;
+    }
     clearNews();
     el('market').hidden = true;
     taskNumber = null;
     el('work').hidden = true;
     el('entry').disabled = true;
     el('start').disabled = true;
-    el('status').textContent = '연결이 끊겼습니다. 새로고침해 다시 접속하세요.';
-  };
+    if (!replaced) el('status').textContent = '연결이 끊겼습니다. 새로고침해 다시 접속하세요.';
+  }
+
+  connect();
 </script>
 </html>

@@ -47,6 +47,13 @@ public final class GameRoom {
         players.remove(playerId);
     }
 
+    /** 같은 방에서 다시 하기: 참가자는 그대로 두고 시작 전 대기 상태로 돌린다. 방장만 할 수 있다. */
+    public synchronized void reset(UUID requesterId) {
+        if (!hostId.equals(requesterId)) {
+            throw new IllegalStateException("방장만 다시 시작할 수 있습니다.");
+        }
+        startedAt = null;
+    }
 
     public synchronized Snapshot snapshot() {
         return new Snapshot(hostId, List.copyOf(players), startedAt);

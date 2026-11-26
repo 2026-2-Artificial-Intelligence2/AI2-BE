@@ -1,0 +1,25 @@
+{
+  "stocks": [
+    {
+      "id": "MINT",
+      "name": "민트식품",
+      "startPriceWon": 1000,
+      "poolShares": 1000,
+      "volatilityPerSecond": 0.0106
+    },
+    {
+      "id": "MOON",
+      "name": "달나라로봇",
+      "startPriceWon": 1000,
+      "poolShares": 1000,
+      "volatilityPerSecond": 0.0177
+    },
+    {
+      "id": "OURS",
+      "name": "우리회사",
+      "startPriceWon": 1000,
+      "poolShares": 1000,
+      "volatilityPerSecond": 0.0057
+    }
+  ]
+}

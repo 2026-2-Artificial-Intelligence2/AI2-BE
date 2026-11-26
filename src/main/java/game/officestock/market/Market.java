@@ -14,48 +14,60 @@ public final class Market {
     private static final int NEWS_INTERVAL_SECONDS = 20;
     /** 찌라시는 뉴스 몇 초 전에 도는가. */
     private static final int RUMOR_LEAD_SECONDS = 8;
-    /** 약 15분 판에서 마지막 2분은 흔들림이 커진다. */
-    private static final int CLOSING_SECONDS = 780;
+    /** 퇴근 전 마지막 2분은 흔들림이 커진다. */
+    private static final int CLOSING_WINDOW_SECONDS = 120;
     static final int TICKS_PER_NEWS = NEWS_INTERVAL_SECONDS / TICK_SECONDS;
     static final int RUMOR_LEAD_TICKS = RUMOR_LEAD_SECONDS / TICK_SECONDS;
-    static final long CLOSING_TICK = CLOSING_SECONDS / TICK_SECONDS;
     /** 풀 가격이 목표가와의 차이를 1초에 좁히는 비율(2초에 20%와 같다). */
     private static final double CHASE_PER_TICK = 1 - Math.pow(Math.sqrt(0.8), TICK_SECONDS);
     private static final double RUMOR_CHANCE = 0.6;
     private static final double TRUE_RUMOR_CHANCE = 0.7;
     private static final double CLOSING_VOLATILITY = 2.5;
+    /**
+     * 발표 때마다 종목별 실제 변화율을 적힌 값의 ±25% 안에서 흔든다. 같은 숫자를 적은 종목끼리도,
+     * 같은 뉴스가 다시 나와도 움직임이 조금씩 다르다. 평균은 적힌 값 그대로다.
+     */
+    private static final double NEWS_JITTER = 0.25;
 
-    public record NewsItem(int number, String kind, String headline) {}
-
-    private static final List<String> GOOD_RUMORS = List.of(
-            "%s 쪽에 좋은 소식이 곧 나온다는 얘기가 돈다",
-            "%s 임원진이 오늘 유난히 웃고 다닌다는 목격담",
-            "%s 담당 팀이 축하 회식을 잡았다는 소문");
-    private static final List<String> BAD_RUMORS = List.of(
-            "%s 임원들이 긴급 회의에 들어갔다는 소문",
-            "%s 거래처와 마찰이 있다는 얘기가 돈다",
-            "%s 담당자가 아침부터 전화를 안 받는다는 목격담");
+    /**
+     * @param kind "news"(속보) 또는 "rumor"(찌라시)
+     * @param symbols 관련 종목 코드. 여러 종목 뉴스면 여러 개
+     * @param body 본문. 찌라시나 본문 없는 뉴스는 null
+     */
+    public record NewsItem(int number, String kind, List<String> symbols, String headline, String body) {}
 
     private final RandomGenerator random;
     private final Map<String, StockPool> pools = new LinkedHashMap<>();
     private final Map<String, PriceDrift> drifts = new LinkedHashMap<>();
     private final List<NewsItem> history = new ArrayList<>();
-    private List<MarketNews> deck = MarketNews.shuffledDeck();
+    private final StockCatalog catalog;
+    private final NewsCatalog news;
+    private List<NewsCatalog.Card> deck;
     private String trueRumorSymbol;
+    private final long closingTick;
 
-    public Market(RandomGenerator random) {
+    /**
+     * 종목은 catalog, 뉴스와 찌라시 문구는 news에서 온다. 종목 코드(id)를 키로 쓴다.
+     * @param sessionSeconds 출근부터 퇴근까지 길이. 마지막 2분이 장 마감 구간이다.
+     */
+    public Market(StockCatalog catalog, NewsCatalog news, RandomGenerator random, long sessionSeconds) {
+        this.catalog = catalog;
+        this.news = news;
         this.random = random;
-        // 초당 흔들림. 2초 간격일 때의 1.5%·2.5%·0.8%와 같은 세기다.
-        add("민트식품", 0.0106);
-        add("달나라로봇", 0.0177);
-        add("우리회사", 0.0057);
+        this.closingTick = Math.max(0, sessionSeconds - CLOSING_WINDOW_SECONDS) / TICK_SECONDS;
+        for (var stock : catalog.stocks()) {
+            pools.put(stock.id(), new StockPool(stock.poolShares(),
+                    Math.multiplyExact(stock.poolShares(), stock.startPriceWon())));
+            drifts.put(stock.id(), new PriceDrift(stock.startPriceWon(), stock.volatilityPerSecond()));
+        }
+        deck = MarketNews.shuffledDeck(news, random);
     }
 
-    private void add(String symbol, double volatility) {
-        pools.put(symbol, new StockPool(1_000, 1_000_000));
-        drifts.put(symbol, new PriceDrift(1_000, volatility));
+    public StockCatalog catalog() {
+        return catalog;
     }
 
+    /** @return 종목 코드에 해당하는 풀, 없으면 null */
     public StockPool pool(String symbol) {
         return pools.get(symbol);
     }
@@ -73,6 +85,16 @@ public final class Market {
         return reserves.cashWon() / reserves.shares();
     }
 
+    /**
+     * 플레이어가 메신저에서 뿌린 익명 찌라시. 시스템 찌라시와 똑같이 보이지만 가격은 움직이지 않는다.
+     * @return 알림창에 들어간 항목
+     */
+    public NewsItem addPlayerRumor(String text) {
+        var item = new NewsItem(history.size() + 1, "rumor", List.of(), text, null);
+        history.add(item);
+        return item;
+    }
+
     /** 플레이어 주문 직후에 부른다. */
     public void recordTrade(String symbol, long spotBeforeWon) {
         drifts.get(symbol).onTrade(spotBeforeWon, spotPrice(symbol));
@@ -84,12 +106,12 @@ public final class Market {
             spreadRumor();
         }
         if (phase == 0) publishNews();
-        double scale = tick >= CLOSING_TICK ? CLOSING_VOLATILITY : 1;
+        double scale = tick >= closingTick ? CLOSING_VOLATILITY : 1;
         drifts.forEach((symbol, drift) -> pools.get(symbol).moveToward(drift.advance(scale, random), CHASE_PER_TICK));
     }
 
-    private MarketNews upcoming() {
-        if (deck.isEmpty()) deck = MarketNews.shuffledDeck();
+    private NewsCatalog.Card upcoming() {
+        if (deck.isEmpty()) deck = MarketNews.shuffledDeck(news, random);
         return deck.getLast();
     }
 
@@ -97,33 +119,48 @@ public final class Market {
         var next = upcoming();
         String symbol;
         int changePercent;
+        Integer upcomingChange;
         if (random.nextDouble() < TRUE_RUMOR_CHANCE) {
-            symbol = next.symbol();
-            changePercent = next.changePercent();
+            // 진짜: 다가오는 뉴스에서 가장 크게 움직일 종목을 가리킨다.
+            var biggest = next.moves().entrySet().stream()
+                    .max((a, b) -> Integer.compare(Math.abs(a.getValue()), Math.abs(b.getValue()))).orElseThrow();
+            symbol = biggest.getKey();
+            changePercent = biggest.getValue();
             trueRumorSymbol = symbol;
         } else {
             // 가짜: 다가오는 뉴스와 종목이나 방향 중 하나 이상이 다르다.
-            var symbols = List.copyOf(pools.keySet());
+            // 세기는 그 종목의 뉴스 카드 중 하나를 골라 비슷하게 맞춘다.
+            var stocks = catalog.stocks();
             do {
-                symbol = symbols.get(random.nextInt(symbols.size()));
-                changePercent = (random.nextBoolean() ? 1 : -1) * random.nextInt(5, 13);
-            } while (symbol.equals(next.symbol())
-                    && Integer.signum(changePercent) == Integer.signum(next.changePercent()));
+                var stock = stocks.get(random.nextInt(stocks.size()));
+                var cards = news.cardsFor(stock.id());
+                var sample = cards.get(random.nextInt(cards.size()));
+                symbol = stock.id();
+                changePercent = (random.nextBoolean() ? 1 : -1) * Math.abs(sample.moves().get(symbol));
+                upcomingChange = next.moves().get(symbol);
+            } while (upcomingChange != null
+                    && Integer.signum(changePercent) == Integer.signum(upcomingChange));
         }
         drifts.get(symbol).onRumor(changePercent, RUMOR_LEAD_TICKS);
-        var templates = changePercent > 0 ? GOOD_RUMORS : BAD_RUMORS;
-        var text = templates.get(random.nextInt(templates.size())).formatted(symbol);
-        history.add(new NewsItem(history.size() + 1, "rumor", text));
+        var phrases = changePercent > 0 ? news.rumors().good() : news.rumors().bad();
+        var text = phrases.get(random.nextInt(phrases.size()))
+                .replace(NewsCatalog.NAME, catalog.stock(symbol).name());
+        history.add(new NewsItem(history.size() + 1, "rumor", List.of(symbol), text, null));
     }
 
     private void publishNews() {
-        var news = upcoming();
+        var card = upcoming();
         deck.removeLast();
         drifts.values().forEach(PriceDrift::clearRumor);
-        boolean rumored = news.symbol().equals(trueRumorSymbol);
+        // 종목마다 따로 반응한다: 실제 폭(±25%)도, 과잉 반응·선반영 같은 경로도 종목별로 정해진다.
+        card.moves().forEach((id, change) -> {
+            double jittered = change * (1 + NEWS_JITTER * (2 * random.nextDouble() - 1));
+            drifts.get(id).onNews(Math.max(jittered, -95), id.equals(trueRumorSymbol), random);
+        });
         trueRumorSymbol = null;
-        drifts.get(news.symbol()).onNews(news.changePercent(), rumored, random);
+        var headline = card.multiStock() ? card.headline()
+                : catalog.stock(card.stock()).name() + " · " + card.headline();
         history.add(new NewsItem(history.size() + 1, "news",
-                news.symbol() + " · " + news.headline()));
+                List.copyOf(card.moves().keySet()), headline, card.body()));
     }
 }
