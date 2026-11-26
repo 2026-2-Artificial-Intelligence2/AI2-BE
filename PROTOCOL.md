@@ -95,13 +95,14 @@
 
 게임 시작과 재접속 때 온다. **종목 목록은 판마다 다르다.** 서버가 판마다 일반 종목 12개를 무작위로 상장하고(기초 종목이 뽑힌 레버리지 종목은 함께), 이 판의 종목만 보낸다. `market`의 `prices`·`pools`·`books`·`candles`와 `chart`도 같은 종목만 담는다. 종목 목록을 고정해 두지 말고 이 메시지로 매 판 다시 그린다.
 
+`sector`는 업종이다(예: 은행, 항공, 반도체). 시세표에 종목 이름과 함께 보여 주면 금리·유가 같은 외부 뉴스가 어떤 종목에 닿는지 읽기 쉽다. 레버리지 종목은 기초 종목의 업종이 온다.
+
 ```json
 {"type":"catalog",
- "stocks":[{"id":"MINT","name":"민트식품"},{"id":"MOON","name":"달나라로봇"},{"id":"OURS","name":"우리회사"},
-           {"id":"SKY","name":"하늘항공"},{"id":"PHARM","name":"온누리제약"},{"id":"CHIP","name":"반짝반도체"},
-           {"id":"BANK","name":"든든은행"},{"id":"DLVR","name":"배달번개"},
-           {"id":"MOON3X","name":"달나라로봇 3X","underlying":"MOON","leverage":"3.0"},
-           {"id":"OURSINV","name":"우리회사 인버스","underlying":"OURS","leverage":"-1.0"}],
+ "stocks":[{"id":"MINT","name":"민트식품","sector":"식품"},{"id":"MOON","name":"달나라로봇","sector":"로봇"},
+           {"id":"OURS","name":"우리회사","sector":"IT 서비스"},{"id":"SSCAR","name":"삼성자동차","sector":"자동차"}, …,
+           {"id":"MOON3X","name":"달나라로봇 3X","sector":"로봇","underlying":"MOON","leverage":"3.0"},
+           {"id":"OURSINV","name":"우리회사 인버스","sector":"IT 서비스","underlying":"OURS","leverage":"-1.0"}],
  "loan":{"interestPercent":20,"maxWon":10000000},
  "feeBps":20,
  "margin":{"leverages":[2,3,5],"interestBpsPerMinute":10,"maintenancePercent":10}}

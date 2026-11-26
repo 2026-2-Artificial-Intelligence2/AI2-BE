@@ -3,6 +3,7 @@
     {
       "id": "MINT",
       "name": "민트식품",
+      "sector": "식품",
       "startPriceWon": 12000,
       "poolShares": 8333,
       "volatilityPerSecond": 0.0106,
@@ -15,6 +16,7 @@
     {
       "id": "MOON",
       "name": "달나라로봇",
+      "sector": "로봇",
       "startPriceWon": 25000,
       "poolShares": 4000,
       "volatilityPerSecond": 0.0177,
@@ -28,6 +30,7 @@
     {
       "id": "OURS",
       "name": "우리회사",
+      "sector": "IT 서비스",
       "startPriceWon": 8000,
       "poolShares": 12500,
       "volatilityPerSecond": 0.0057,
@@ -39,6 +42,7 @@
     {
       "id": "SKY",
       "name": "하늘항공",
+      "sector": "항공",
       "startPriceWon": 15000,
       "poolShares": 6667,
       "volatilityPerSecond": 0.012,
@@ -51,6 +55,7 @@
     {
       "id": "PHARM",
       "name": "온누리제약",
+      "sector": "제약",
       "startPriceWon": 48000,
       "poolShares": 2083,
       "volatilityPerSecond": 0.016,
@@ -63,6 +68,7 @@
     {
       "id": "CHIP",
       "name": "반짝반도체",
+      "sector": "반도체",
       "startPriceWon": 62000,
       "poolShares": 1613,
       "volatilityPerSecond": 0.014,
@@ -75,6 +81,7 @@
     {
       "id": "BANK",
       "name": "든든은행",
+      "sector": "은행",
       "startPriceWon": 9000,
       "poolShares": 11111,
       "volatilityPerSecond": 0.005,
@@ -86,6 +93,7 @@
     {
       "id": "DLVR",
       "name": "배달번개",
+      "sector": "배달 플랫폼",
       "startPriceWon": 21000,
       "poolShares": 4762,
       "volatilityPerSecond": 0.013,
@@ -98,6 +106,7 @@
     {
       "id": "SSCAR",
       "name": "삼성자동차",
+      "sector": "자동차",
       "startPriceWon": 54000,
       "poolShares": 1852,
       "volatilityPerSecond": 0.012,
@@ -110,6 +119,7 @@
     {
       "id": "HDELEC",
       "name": "현대전자",
+      "sector": "전자",
       "startPriceWon": 71000,
       "poolShares": 1408,
       "volatilityPerSecond": 0.011,
@@ -122,6 +132,7 @@
     {
       "id": "LGAIR",
       "name": "LG항공",
+      "sector": "항공",
       "startPriceWon": 18000,
       "poolShares": 5556,
       "volatilityPerSecond": 0.013,
@@ -134,6 +145,7 @@
     {
       "id": "SKFOOD",
       "name": "SK치킨",
+      "sector": "외식",
       "startPriceWon": 13000,
       "poolShares": 7692,
       "volatilityPerSecond": 0.012,
@@ -145,6 +157,7 @@
     {
       "id": "KKSHIP",
       "name": "카카오조선",
+      "sector": "조선",
       "startPriceWon": 32000,
       "poolShares": 3125,
       "volatilityPerSecond": 0.014,
@@ -157,6 +170,7 @@
     {
       "id": "NVCON",
       "name": "네이버건설",
+      "sector": "건설",
       "startPriceWon": 9500,
       "poolShares": 10526,
       "volatilityPerSecond": 0.011,
@@ -169,6 +183,7 @@
     {
       "id": "LTCHIP",
       "name": "롯데반도체",
+      "sector": "반도체",
       "startPriceWon": 88000,
       "poolShares": 1136,
       "volatilityPerSecond": 0.016,
@@ -181,6 +196,7 @@
     {
       "id": "SSGENT",
       "name": "신세계엔터",
+      "sector": "엔터테인먼트",
       "startPriceWon": 42000,
       "poolShares": 2381,
       "volatilityPerSecond": 0.019,
@@ -193,6 +209,7 @@
     {
       "id": "CPBANK",
       "name": "쿠팡은행",
+      "sector": "인터넷은행",
       "startPriceWon": 11000,
       "poolShares": 9091,
       "volatilityPerSecond": 0.008,
@@ -204,6 +221,7 @@
     {
       "id": "BMSEC",
       "name": "배민증권",
+      "sector": "증권",
       "startPriceWon": 7600,
       "poolShares": 13158,
       "volatilityPerSecond": 0.013,
@@ -216,6 +234,7 @@
     {
       "id": "HWBEAUTY",
       "name": "한화화장품",
+      "sector": "화장품",
       "startPriceWon": 26000,
       "poolShares": 3846,
       "volatilityPerSecond": 0.012,
@@ -228,6 +247,7 @@
     {
       "id": "PSGAME",
       "name": "포스코게임즈",
+      "sector": "게임",
       "startPriceWon": 35000,
       "poolShares": 2857,
       "volatilityPerSecond": 0.018,
@@ -240,6 +260,7 @@
     {
       "id": "CJSPACE",
       "name": "CJ우주항공",
+      "sector": "우주항공",
       "startPriceWon": 47000,
       "poolShares": 2128,
       "volatilityPerSecond": 0.02,
@@ -252,6 +273,7 @@
     {
       "id": "NSBIO",
       "name": "농심바이오",
+      "sector": "바이오",
       "startPriceWon": 39000,
       "poolShares": 2564,
       "volatilityPerSecond": 0.019,
@@ -264,6 +286,7 @@
     {
       "id": "OTGEV",
       "name": "오뚜기모터스",
+      "sector": "전기차",
       "startPriceWon": 23000,
       "poolShares": 4348,
       "volatilityPerSecond": 0.017,
@@ -276,6 +299,7 @@
     {
       "id": "KTSNACK",
       "name": "KT제과",
+      "sector": "제과",
       "startPriceWon": 6800,
       "poolShares": 14706,
       "volatilityPerSecond": 0.007,
@@ -287,6 +311,7 @@
     {
       "id": "AMHEAVY",
       "name": "아모레중공업",
+      "sector": "원전·중공업",
       "startPriceWon": 29000,
       "poolShares": 3448,
       "volatilityPerSecond": 0.013,
@@ -299,6 +324,7 @@
     {
       "id": "NXENERGY",
       "name": "넥슨에너지",
+      "sector": "정유·에너지",
       "startPriceWon": 51000,
       "poolShares": 1961,
       "volatilityPerSecond": 0.012,
@@ -310,6 +336,7 @@
     {
       "id": "BGBATT",
       "name": "빙그레배터리",
+      "sector": "이차전지",
       "startPriceWon": 67000,
       "poolShares": 1493,
       "volatilityPerSecond": 0.018,
@@ -322,6 +349,7 @@
     {
       "id": "HYTEL",
       "name": "하이브텔레콤",
+      "sector": "통신",
       "startPriceWon": 16000,
       "poolShares": 6250,
       "volatilityPerSecond": 0.006,
