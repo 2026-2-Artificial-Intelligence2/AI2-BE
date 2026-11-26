@@ -30,6 +30,8 @@ public final class Market {
     private static final double NEWS_JITTER = 0.25;
     /** 속보가 난 틱에 가격이 목표가와의 차이를 한 번에 좁히는 비율. */
     private static final double NEWS_GAP = 0.7;
+    /** 레버리지 종목이 목표가를 따라가는 비율(틱당). 기초 종목을 바짝 따라가야 하므로 일반 종목보다 빠르다. */
+    private static final double LEVERAGED_CHASE = 0.5;
 
     /**
      * @param kind "news"(속보) 또는 "rumor"(찌라시)
@@ -56,6 +58,8 @@ public final class Market {
     private final RandomGenerator random;
     private final Map<String, StockPool> pools = new LinkedHashMap<>();
     private final Map<String, PriceDrift> drifts = new LinkedHashMap<>();
+    /** 레버리지·인버스 종목(기초 종목을 따라간다). */
+    private final Map<String, LeveragedPrice> leveraged = new LinkedHashMap<>();
     private final List<NewsItem> history = new ArrayList<>();
     private final StockCatalog catalog;
     private final NewsCatalog news;
@@ -80,7 +84,12 @@ public final class Market {
         for (var stock : catalog.stocks()) {
             pools.put(stock.id(), new StockPool(stock.poolShares(),
                     Math.multiplyExact(stock.poolShares(), stock.startPriceWon())));
-            drifts.put(stock.id(), new PriceDrift(stock.startPriceWon(), stock.volatilityPerSecond()));
+            if (stock.derived()) {
+                leveraged.put(stock.id(), new LeveragedPrice(stock.underlying(), stock.leverage(),
+                        stock.startPriceWon(), catalog.stock(stock.underlying()).startPriceWon()));
+            } else {
+                drifts.put(stock.id(), new PriceDrift(stock.startPriceWon(), stock.volatilityPerSecond()));
+            }
         }
         deck = MarketNews.shuffledDeck(news, random);
         for (var stock : catalog.stocks()) {
@@ -92,7 +101,20 @@ public final class Market {
                         "symbols", List.of(stock.id()), "headline", note.text()));
             }
         }
+        // 레버리지 종목의 출근 전 차트는 기초 종목의 봉을 배수로 따라 그리고, 끝을 시작가에 맞춘다.
+        for (var stock : catalog.stocks()) {
+            if (!stock.derived()) continue;
+            var base = chart.all().get(stock.underlying());
+            if (base == null || base.isEmpty()) continue;
+            chart.addHistory(stock.id(), PriceStory.follow(base, stock.leverage(), stock.startPriceWon(), random));
+        }
         for (var symbol : pools.keySet()) chart.record(symbol, 0, spotPrice(symbol), 0);
+    }
+
+    /** 레버리지 종목이면 기초 종목 코드, 아니면 null. */
+    public String underlyingOf(String symbol) {
+        var tracker = leveraged.get(symbol);
+        return tracker == null ? null : tracker.underlying;
     }
 
     public StockCatalog catalog() {
@@ -180,7 +202,8 @@ public final class Market {
 
     /** 플레이어 주문 직후에 부른다. */
     public void recordTrade(String symbol, long spotBeforeWon, long quantity) {
-        drifts.get(symbol).onTrade(spotBeforeWon, spotPrice(symbol));
+        if (leveraged.containsKey(symbol)) leveraged.get(symbol).onTrade(spotBeforeWon, spotPrice(symbol));
+        else drifts.get(symbol).onTrade(spotBeforeWon, spotPrice(symbol));
         chart.record(symbol, second, spotPrice(symbol), quantity);
     }
 
@@ -196,6 +219,10 @@ public final class Market {
         // 속보가 난 종목은 그 순간 남은 차이의 NEWS_GAP만큼 바로 움직인다. 천천히 따라가면 먼저 사는 쪽이 거저 먹는다.
         drifts.forEach((symbol, drift) -> pools.get(symbol).moveToward(drift.advance(scale, random),
                 newsThisTick.contains(symbol) ? NEWS_GAP : CHASE_PER_TICK));
+        // 레버리지 종목은 기초 종목이 움직인 뒤에 그 움직임을 배수로 따라간다(속보 갭도 같이).
+        leveraged.forEach((symbol, tracker) -> pools.get(symbol).moveToward(
+                tracker.advance(spotPrice(tracker.underlying)),
+                newsThisTick.contains(tracker.underlying) ? Math.max(NEWS_GAP, LEVERAGED_CHASE) : LEVERAGED_CHASE));
         for (var symbol : pools.keySet()) chart.record(symbol, second, spotPrice(symbol), 0);
     }
 
@@ -219,7 +246,7 @@ public final class Market {
         } else {
             // 가짜: 다가오는 뉴스와 종목이나 방향 중 하나 이상이 다르다.
             // 세기는 그 종목의 뉴스 카드 중 하나를 골라 비슷하게 맞춘다.
-            var stocks = catalog.stocks();
+            var stocks = catalog.stocks().stream().filter(st -> !st.derived()).toList();
             do {
                 var stock = stocks.get(random.nextInt(stocks.size()));
                 var cards = news.cardsFor(stock.id());

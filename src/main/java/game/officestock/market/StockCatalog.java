@@ -19,15 +19,27 @@ public record StockCatalog(List<Stock> stocks) {
      * @param poolShares 풀의 주식 수. 클수록 큰 주문에도 가격이 덜 밀린다.
      * @param volatilityPerSecond 평소 흔들림의 초당 표준편차(0.01 = 1%)
      * @param story 출근 전 주가 흐름(선택). 구간을 순서대로 이어 붙여 차트의 과거 봉을 만들고, 마지막은 시작가에 닿는다.
+     * @param underlying 레버리지·인버스 종목이면 기초 종목 코드(아니면 null). 뉴스·흔들림·story는 기초 종목을 따른다.
+     * @param leverage 레버리지 배수(예: 3, 2, -1 인버스). underlying이 있을 때만 쓴다.
      */
     public record Stock(String id, String name, long startPriceWon, long poolShares,
-                        double volatilityPerSecond, List<StorySegment> story) {
+                        double volatilityPerSecond, List<StorySegment> story, String underlying, Double leverage) {
         public Stock {
             story = story == null ? List.of() : List.copyOf(story);
         }
 
         public Stock(String id, String name, long startPriceWon, long poolShares, double volatilityPerSecond) {
-            this(id, name, startPriceWon, poolShares, volatilityPerSecond, List.of());
+            this(id, name, startPriceWon, poolShares, volatilityPerSecond, List.of(), null, null);
+        }
+
+        public Stock(String id, String name, long startPriceWon, long poolShares, double volatilityPerSecond,
+                     List<StorySegment> story) {
+            this(id, name, startPriceWon, poolShares, volatilityPerSecond, story, null, null);
+        }
+
+        /** 레버리지·인버스 종목인가. */
+        public boolean derived() {
+            return underlying != null;
         }
     }
 
@@ -71,6 +83,18 @@ public record StockCatalog(List<Stock> stocks) {
             }
             if (storyCandles > MAX_STORY_CANDLES)
                 throw invalid(s.id() + ": story는 모두 합쳐 " + MAX_STORY_CANDLES + "봉(1시간)까지입니다.");
+        }
+        for (var s : stocks) {
+            if (!s.derived()) {
+                if (s.leverage() != null) throw invalid(s.id() + ": leverage는 underlying과 함께 써야 합니다.");
+                continue;
+            }
+            var base = stocks.stream().filter(b -> b.id().equals(s.underlying())).findFirst()
+                    .orElseThrow(() -> invalid(s.id() + ": 없는 기초 종목입니다: " + s.underlying()));
+            if (base.derived()) throw invalid(s.id() + ": 레버리지 종목의 기초 종목은 일반 종목이어야 합니다.");
+            if (s.leverage() == null || s.leverage() == 0 || s.leverage() == 1 || Math.abs(s.leverage()) > 5)
+                throw invalid(s.id() + ": leverage는 0과 1이 아니고 -5~5 사이여야 합니다(예: 3, 2, -1).");
+            if (!s.story().isEmpty()) throw invalid(s.id() + ": 레버리지 종목은 story를 쓰지 않습니다(기초 종목을 따릅니다).");
         }
     }
 

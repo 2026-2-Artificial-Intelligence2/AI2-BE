@@ -35,6 +35,24 @@
         {"candles": 90, "changePercent": 2, "volatility": 0.003, "note": "분기 실적 무난"},
         {"candles": 90, "changePercent": -1, "volatility": 0.003, "note": "신사옥 이전 비용 우려"}
       ]
+    },
+    {
+      "id": "MOON3X",
+      "name": "달나라로봇 3X",
+      "startPriceWon": 10000,
+      "poolShares": 10000,
+      "volatilityPerSecond": 0,
+      "underlying": "MOON",
+      "leverage": 3
+    },
+    {
+      "id": "OURSINV",
+      "name": "우리회사 인버스",
+      "startPriceWon": 5000,
+      "poolShares": 20000,
+      "volatilityPerSecond": 0,
+      "underlying": "OURS",
+      "leverage": -1
     }
   ]
 }

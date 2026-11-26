@@ -106,7 +106,7 @@
         </select></label>
         <small>· 매수의 %는 현금 기준, 매도의 %는 팔 수 있는 보유량 기준</small>
       </caption>
-      <thead><tr><th>종목</th><th>기준가</th><th>딸깍</th><th>내 보유량</th><th>평균 매수가</th><th>청산가</th><th>손익</th></tr></thead>
+      <thead><tr><th>종목</th><th>기준가</th><th>딸깍</th><th>내 보유량</th><th>평균 매수가</th><th>청산가</th><th>손익</th><th>신용</th></tr></thead>
       <tbody id="quotes"></tbody>
     </table>
     <p id="profitSummary"></p>
@@ -131,6 +131,7 @@
     <p id="detailNote">호가 잔량은 그 가격까지 움직이려면 사고팔아야 하는 주식 수입니다(이 시장은 걸어 둔 주문 없이 풀 공식으로 움직입니다). 차트는 10초 봉이고, 세로선은 속보(주황), 찌라시(회색), 출근 전 지난 소식(보라)입니다. 휠로 확대·축소, 끌어서 좌우 이동, "실시간"으로 최신 봉을 따라갑니다.</p>
     <form id="order">
       <label>종목 <select id="symbol"></select></label>
+      <label>배수 <select id="leverageSel"><option value="1">현금</option></select></label>
       <label>주문 <select id="orderMode">
         <option value="qty">수량(시장가)</option>
         <option value="won">금액(시장가)</option>
@@ -175,7 +176,7 @@
     <p><button id="restart" hidden>같은 방에서 다시 하기</button>
       <span id="restartNote" hidden>방장이 다시 하기를 누르면 같은 방의 대기실로 돌아갑니다.</span></p>
     <table>
-      <thead><tr><th>순위</th><th>직원</th><th>순자산</th><th>현금</th><th>주식 청산가</th><th>대출 상환</th><th>업무 수당</th><th>보유 주식</th></tr></thead>
+      <thead><tr><th>순위</th><th>직원</th><th>순자산</th><th>현금</th><th>주식 청산가</th><th>대출 상환</th><th>신용 빚</th><th>업무 수당</th><th>보유 주식</th></tr></thead>
       <tbody id="standings"></tbody>
     </table>
     <p>주식은 퇴근 순간 혼자 전부 팔았을 때 받을 금액으로 평가합니다.</p>
@@ -380,24 +381,30 @@
     const side = event.submitter?.value;
     if (!side || socket.readyState !== WebSocket.OPEN) return;
     const mode = el('orderMode').value, symbol = el('symbol').value, n = el('quantity').value;
-    if (mode === 'qty') socket.send([side, symbol, n].join(' '));
-    else if (mode === 'won') socket.send([side + 'WON', symbol, n].join(' '));
+    const lev = side === 'BUY' ? leverageSuffix() : '';
+    if (mode === 'qty') socket.send([side, symbol, n].join(' ') + lev);
+    else if (mode === 'won') socket.send([side + 'WON', symbol, n].join(' ') + lev);
     else socket.send(['LIMIT', side, symbol, el('limitPrice').value, n].join(' '));
   };
+  // 신용 매수: 배수를 고르면 매수 명령 끝에 "x3"처럼 붙는다. 매도와 지정가에는 쓰지 않는다.
+  let marginTerms = null;
+  const leverageSuffix = () => el('leverageSel').value === '1' ? '' : ' x' + el('leverageSel').value;
+  el('leverageSel').addEventListener('change', () => renderEstimate());
+
   // 딸깍 매매: 시세표의 버튼 한 번으로 정해 둔 단위만큼 시장가로 사고판다.
   // 수량 단위는 그대로, %는 매수면 지금 현금의, 매도면 팔 수 있는 보유량(지정가에 묶인 것 제외)의 비율이다.
   function clickTrade(side, symbol) {
     if (socket.readyState !== WebSocket.OPEN) return;
     const size = el('clickSize').value;
     if (size.startsWith('q')) {
-      socket.send([side, symbol, size.slice(1)].join(' '));
+      socket.send([side, symbol, size.slice(1)].join(' ') + (side === 'BUY' ? leverageSuffix() : ''));
       return;
     }
     const ratio = BigInt(size.slice(1));
     if (side === 'BUY') {
       const amount = cashNow * ratio / 100n;
       if (amount <= 0n) { el('status').textContent = '현금이 없습니다.'; return; }
-      socket.send(['BUYWON', symbol, amount].join(' '));
+      socket.send(['BUYWON', symbol, amount].join(' ') + leverageSuffix());
     } else {
       const sellable = BigInt((holdingsNow[symbol] ?? 0) - lockedShares(symbol));
       const quantity = ratio === 100n ? sellable : sellable * ratio / 100n;
@@ -496,9 +503,12 @@
     const owned = BigInt((holdingsNow[symbol] ?? 0) - lockedShares(symbol));
     if (mode === 'limit') return renderLimitEstimate(out, symbol, quantity, q, owned);
     const avg = amount => won(Number(amount / quantity)) + '/주';
+    const lev = BigInt(el('leverageSel').value);
+    const own = q.buy === null ? 0n : (q.buy + lev - 1n) / lev;
     const buyText = q.buy === null ? '매수 불가 (풀 수량 초과)'
       : '예상 매수 금액 ' + won(Number(q.buy)) + ' (평균 ' + avg(q.buy) + ')' +
-        (q.buy > cashNow ? ' · 현금 부족' : '');
+        (lev > 1n ? ' · 내 돈 ' + won(Number(own)) + ' + 빌림 ' + won(Number(q.buy - own)) : '') +
+        (own > cashNow ? ' · 현금 부족' : '');
     const sellText = quantity > owned ? '매도 불가 (보유 ' + owned + '주)'
       : '예상 매도 금액 ' + won(Number(q.sell)) + ' (평균 ' + avg(q.sell) + ')';
     out.textContent = buyText + ' · ' + sellText + ' — 거래 비용 ' + (Number(feeBps) / 100) + '% 포함, 주문이 도착할 때 시세가 바뀌면 달라질 수 있습니다.';
@@ -506,10 +516,11 @@
   // 금액 주문: 매수는 그 금액(과 가진 현금) 안에서 최대 수량, 매도는 그 금액 이상을 받는 최소 수량.
   function renderWonEstimate(out, symbol, amount) {
     if (!pools[symbol] || amount <= 0n) { out.textContent = ''; return; }
-    const budget = amount < cashNow ? amount : cashNow;
+    const lev = BigInt(el('leverageSel').value);
+    const own = amount < cashNow ? amount : cashNow;
     let lo = 0n, hi = BigInt(pools[symbol].shares) - 1n;
-    while (lo < hi) { const mid = (lo + hi + 1n) / 2n; if (quote(symbol, mid).buy <= budget) lo = mid; else hi = mid - 1n; }
-    const buyText = lo > 0n ? '약 ' + lo + '주 매수 (' + won(Number(quote(symbol, lo).buy)) + ')' : '매수 불가 (금액 부족)';
+    while (lo < hi) { const mid = (lo + hi + 1n) / 2n; if ((quote(symbol, mid).buy + lev - 1n) / lev <= own) lo = mid; else hi = mid - 1n; }
+    const buyText = lo > 0n ? '약 ' + lo + '주 매수 (' + won(Number(quote(symbol, lo).buy)) + (lev > 1n ? ', 내 돈 ' + won(Number(own)) + '의 ' + lev + '배' : '') + ')' : '매수 불가 (금액 부족)';
     const sellable = BigInt((holdingsNow[symbol] ?? 0) - lockedShares(symbol));
     let sellText = '매도 불가 (팔 수 있는 주식 없음)';
     if (sellable > 0n) {
@@ -635,8 +646,9 @@
       const tr = body.insertRow();
       const holdings = Object.entries(row.holdings).map(([s, q]) => stockName(s) + ' ' + q + '주').join(', ') || '없음';
       for (const text of [row.rank + '위', row.player + (row.player === you ? ' (나)' : ''),
-          won(row.netWorthWon), won(row.cashWon), won(row.stockValueWon),
+          won(row.netWorthWon) + (row.bankrupt ? ' (파산)' : ''), won(row.cashWon), won(row.stockValueWon),
           row.loanRepayWon ? '-' + won(row.loanRepayWon) : '-',
+          row.marginDebtWon ? '-' + won(row.marginDebtWon) : '-',
           won(row.workIncomeWon) + ' (' + row.completedTasks + '건)', holdings]) {
         tr.insertCell().textContent = text;
       }
@@ -741,6 +753,17 @@
         profit.style.color = profitColor(position.profitWon);
       } else {
         profit.textContent = '-';
+      }
+      // 신용: 빚과 담보 비율. 유지 비율 + 10%p 아래면 빨갛게(반대매매가 가깝다).
+      const credit = row.insertCell();
+      if (position?.debtWon) {
+        credit.textContent = '빚 ' + won(position.debtWon) + ' · 담보 ' + position.marginRatioPercent.toFixed(1) + '%';
+        if (marginTerms && position.marginRatioPercent < marginTerms.maintenancePercent + 10) {
+          credit.style.color = '#c62828';
+          credit.style.fontWeight = 'bold';
+        }
+      } else {
+        credit.textContent = '-';
       }
     }
     stockValueNow = Object.values(portfolio.positions).reduce((sum, p) => sum + p.valueWon, 0);
@@ -909,7 +932,9 @@
     const labels = {news: '속보 · ', rumor: '찌라시 · ', past: '지난 소식 · '};
     for (const mark of newsMarks.values()) {
       if (mark.second < firstSecond || mark.second >= lastSecond) continue;
-      if (mark.symbols.length && !mark.symbols.includes(symbol)) continue;
+      // 레버리지 종목은 기초 종목의 뉴스도 표시한다.
+      const base = stocks.find(st => st.id === symbol)?.underlying;
+      if (mark.symbols.length && !mark.symbols.includes(symbol) && !(base && mark.symbols.includes(base))) continue;
       const mx = x(mark.second) + (mark.kind === 'past' ? 0 : slot / 2);
       const line = svgEl('line', {x1: mx, x2: mx, y1: top, y2: volTop + volH,
         stroke: colors[mark.kind] ?? '#9e9e9e', 'stroke-dasharray': '4 3'});
@@ -1095,6 +1120,12 @@
       stocks = message.stocks;
       loanTerms = message.loan;
       feeBps = BigInt(message.feeBps ?? 0);
+      marginTerms = message.margin;
+      const levSel = el('leverageSel');
+      const chosen = levSel.value;
+      levSel.replaceChildren(new Option('현금', '1'));
+      for (const lev of marginTerms?.leverages ?? []) levSel.add(new Option('신용 ' + lev + '배', String(lev)));
+      levSel.value = [...levSel.options].some(o => o.value === chosen) ? chosen : '1';
       el('loan').textContent = '비상 대출 받기 (한 판에 한 번 · 최대 ' + won(loanTerms.maxWon) +
         ' · 퇴근 때 원금의 ' + (100 + loanTerms.interestPercent) + '% 상환)';
     } else if (message.type === 'notice') {
@@ -1107,13 +1138,18 @@
     } else if (message.type === 'orders') {
       renderOrders(message.orders);
     } else if (message.type === 'fill') {
-      if (message.limit) {
+      if (message.forced) {
+        showPopup('반대매매 · ' + stockName(message.symbol) + ' ' + message.quantity + '주가 강제로 팔렸습니다',
+          '받은 돈 ' + won(message.amount) + ' 중 신용 빚 ' + won(message.debtRepaidWon) + '을 먼저 갚았습니다.');
+      } else if (message.limit) {
         showPopup('체결 알림 · ' + stockName(message.symbol) + ' ' + message.quantity + '주 ' + message.side,
           '총 ' + won(message.amount) + ' · 평균 ' + won(Math.round(message.amount / message.quantity)) + '/주');
       }
       el('fill').textContent =
         stockName(message.symbol) + ' ' + message.quantity + '주 ' + message.side +
-        ' 체결 · 총 ' + won(message.amount) + (message.feeWon ? ' (거래 비용 ' + won(message.feeWon) + ' 포함)' : '');
+        ' 체결 · 총 ' + won(message.amount) + (message.feeWon ? ' (거래 비용 ' + won(message.feeWon) + ' 포함)' : '') +
+        (message.borrowedWon ? ' · 빌린 돈 ' + won(message.borrowedWon) : '') +
+        (message.debtRepaidWon ? ' · 신용 빚 ' + won(message.debtRepaidWon) + ' 상환' : '');
     } else if (message.type === 'work') {
       const {task, balance, rewardWon} = message.desk;
       const advanced = taskNumber !== null && task.number > taskNumber;
@@ -1124,6 +1160,7 @@
       el('balance').textContent =
         '내 현금 ' + won(balance.cashWon) + ' · 누적 업무 수당 ' + won(balance.workIncomeWon) +
         (balance.reservedWon ? ' · 주문에 묶인 현금 ' + won(balance.reservedWon) : '') +
+        (balance.marginDebtWon ? ' · 신용 빚 ' + won(balance.marginDebtWon) : '') +
         (balance.loanRepayWon ? ' · 퇴근 때 대출 상환 ' + won(balance.loanRepayWon) : '');
       renderLoan();
       el('taskTitle').textContent = '업무 ' + task.number + ' · 완료 수당 ' + won(rewardWon);
