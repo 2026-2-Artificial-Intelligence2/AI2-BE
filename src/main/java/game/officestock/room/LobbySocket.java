@@ -84,8 +84,8 @@ public class LobbySocket extends TextWebSocketHandler {
     private final PlaytestLog playtest;
     private final StockCatalog catalog;
     private final NewsCatalog news;
-    /** 화면이 종목 코드를 이름으로 바꿀 수 있게 게임 시작·재접속 때 보내는 목록. */
-    private final List<Map<String, String>> catalogMessage;
+    /** 한 판에 상장하는 일반 종목 수. 0이면 전부. */
+    private final int stocksPerGame;
 
     public LobbySocket(ObjectMapper json, PlaytestLog playtest, StockCatalog catalog, NewsCatalog news,
             @Value("${game.starting-cash-won}") long startingCashWon,
@@ -96,7 +96,8 @@ public class LobbySocket extends TextWebSocketHandler {
             @Value("${game.loan-max-won}") long loanMaxWon,
             @Value("${game.trade-fee-bps}") int tradeFeeBps,
             @Value("${game.margin-interest-bps-per-minute}") int marginInterestBpsPerMinute,
-            @Value("${game.margin-maintenance-percent}") int marginMaintenancePercent) {
+            @Value("${game.margin-maintenance-percent}") int marginMaintenancePercent,
+            @Value("${game.stocks-per-game:12}") int stocksPerGame) {
         if (startingCashWon < 0 || workRewardWon <= 0 || sessionSeconds <= 0) {
             throw new IllegalArgumentException("시작 자금, 업무 수당, 근무 시간 설정을 확인하세요.");
         }
@@ -118,11 +119,8 @@ public class LobbySocket extends TextWebSocketHandler {
         this.playtest = playtest;
         this.catalog = catalog;
         this.news = news;
-        this.catalogMessage = catalog.stocks().stream()
-                .map(s -> s.derived()
-                        ? Map.of("id", s.id(), "name", s.name(), "underlying", s.underlying(),
-                                "leverage", String.valueOf(s.leverage()))
-                        : Map.of("id", s.id(), "name", s.name())).toList();
+        if (stocksPerGame < 0) throw new IllegalArgumentException("한 판 상장 종목 수를 확인하세요.");
+        this.stocksPerGame = stocksPerGame;
         reaper.scheduleWithFixedDelay(this::reapRooms, 5, 5, TimeUnit.SECONDS);
     }
 
@@ -377,7 +375,7 @@ public class LobbySocket extends TextWebSocketHandler {
         broadcast(lobby);
         for (var entry : lobby.clients.entrySet()) {
             sendChart(entry.getValue(), lobby);
-            send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon),
+            send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage(lobby), "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon),
                     "feeBps", tradeFeeBps, "margin", Map.of("leverages", MARGIN_LEVERAGES,
                             "interestBpsPerMinute", marginInterestBpsPerMinute,
                             "maintenancePercent", marginMaintenancePercent)));
@@ -958,7 +956,7 @@ public class LobbySocket extends TextWebSocketHandler {
             sendChatHistory(session, lobby, player);
             if (!lobby.started()) return;
             sendChart(session, lobby);
-            send(session, Map.of("type", "catalog", "stocks", catalogMessage, "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon),
+            send(session, Map.of("type", "catalog", "stocks", catalogMessage(lobby), "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon),
                     "feeBps", tradeFeeBps, "margin", Map.of("leverages", MARGIN_LEVERAGES,
                             "interestBpsPerMinute", marginInterestBpsPerMinute,
                             "maintenancePercent", marginMaintenancePercent)));
@@ -978,8 +976,20 @@ public class LobbySocket extends TextWebSocketHandler {
         }
     }
 
+    /** 판마다 상장 종목을 새로 뽑고, 뉴스 덱도 그 종목에 맞춘다. */
     private Market newMarket(long seconds) {
-        return new Market(catalog, news, new SplittableRandom(), seconds);
+        var random = new SplittableRandom();
+        var listed = catalog.pick(stocksPerGame, random);
+        return new Market(listed, listed == catalog ? news : news.restrictTo(listed), random, seconds);
+    }
+
+    /** 화면이 종목 코드를 이름으로 바꿀 수 있게 게임 시작·재접속 때 보내는 이번 판 종목 목록. */
+    private static List<Map<String, String>> catalogMessage(Lobby lobby) {
+        return lobby.market.catalog().stocks().stream()
+                .map(s -> s.derived()
+                        ? Map.of("id", s.id(), "name", s.name(), "underlying", s.underlying(),
+                                "leverage", String.valueOf(s.leverage()))
+                        : Map.of("id", s.id(), "name", s.name())).toList();
     }
 
     private void attach(WebSocketSession session, Lobby lobby, UUID player) {

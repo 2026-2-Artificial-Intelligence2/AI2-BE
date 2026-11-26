@@ -105,6 +105,7 @@ java -jar build/libs/office-stock.jar --game.allowed-origins='http://localhost:*
 | `game.loan-max-won` | 100000 | 비상 대출 상한 |
 | `game.allowed-origins` | `http://localhost:*,http://127.0.0.1:*` | WebSocket을 허용할 화면 주소 |
 | `game.playtest-log` | `playtest/work-times.csv` | 업무 시간 기록 파일 |
+| `game.stocks-per-game` | `12` | 한 판에 무작위로 상장하는 일반 종목 수(0이면 전부). 기초 종목이 뽑힌 레버리지 종목은 따로 더해진다. |
 | `game.stock-catalog` | `classpath:market/stocks.json` | 종목 목록 |
 | `game.news-catalog` | `classpath:market/news.json` | 뉴스와 찌라시 문구 |
 
