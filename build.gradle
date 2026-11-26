@@ -19,4 +19,20 @@ dependencies {
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.springframework.security:spring-security-crypto'
     runtimeOnly 'org.postgresql:postgresql'
+
+    // Boot 3.2가 정한 Testcontainers 1.19는 Docker 29(API 1.40 미만 거절)와 통신하지 못해 올린다.
+    testImplementation platform('org.testcontainers:testcontainers-bom:1.21.4')
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events 'failed'
+        exceptionFormat 'full'
+    }
 }
