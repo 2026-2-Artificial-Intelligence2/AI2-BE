@@ -336,7 +336,7 @@
 ### `result` — 퇴근 결과
 
 ```json
-{"type":"result","you":"P2",
+{"type":"result","you":"P2","startingCashWon":100000,
  "standings":[{"rank":1,"player":"P1","netWorthWon":100000,"cashWon":100000,"stockValueWon":0,"loanRepayWon":0,"workIncomeWon":0,"completedTasks":0,"holdings":{}},
               {"rank":2,"player":"P2","netWorthWon":97890,"cashWon":95456,"stockValueWon":14434,"loanRepayWon":12000,"workIncomeWon":350,"completedTasks":1,"holdings":{"MINT":5,"MOON":10}}],
  "trades":[{"second":17,"player":"P2","symbol":"MINT","side":"지정가 매수","quantity":5,"amountWon":4755}, …],
@@ -344,7 +344,7 @@
  "leaks":[{"player":"P2","newsNumber":1,"text":"우리회사 회장님 은퇴설"}]}
 ```
 
-순자산 = 현금 + 주식 청산가 − 대출 원리금 − 신용 빚이다. `standings`의 각 줄에는 `marginDebtWon`과 `bankrupt`(순자산 음수면 true)가 더 있다. 같은 금액이면 같은 순위다. 퇴근 뒤 재접속해도 다시 온다.
+순자산 = 현금 + 주식 청산가 − 대출 원리금 − 신용 빚이다. `startingCashWon`은 출근 때 받은 현금으로, 순자산에서 빼면 이번 판 손익이다. `standings`의 각 줄에는 `marginDebtWon`과 `bankrupt`(순자산 음수면 true)가 더 있다. 같은 금액이면 같은 순위다. 퇴근 뒤 재접속해도 다시 온다.
 
 ### 연결 관련
 
