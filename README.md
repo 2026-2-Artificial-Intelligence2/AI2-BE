@@ -143,7 +143,7 @@ docker run -p 8080:8080 office-stock
 ```
 
 - Docker가 켜져 있어야 한다. DB 테스트와 한 판 전체 테스트는 Testcontainers로 **빈 PostgreSQL을 따로 띄워** 쓰고 끝나면 지운다(개발용 DB는 건드리지 않는다).
-- 52개, 약 15초. 결과 보고서: `build/reports/tests/test/index.html`
+- 57개, 약 20초. 결과 보고서: `build/reports/tests/test/index.html`
 
 | 묶음 | 확인하는 것 |
 |---|---|
