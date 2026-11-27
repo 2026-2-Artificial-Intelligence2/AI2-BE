@@ -247,7 +247,15 @@ public class LobbySocket extends TextWebSocketHandler {
     private record Membership(Lobby lobby, UUID player) {}
 
     /** @param to 받는 사람 이름, 단체방이면 null */
-    private record ChatMessage(int id, long second, String from, String to, String text) {}
+    /** @param system 서버가 보낸 사내 알림(동료가 면담에 불려 감 등). from은 {@link #SYSTEM_SENDER}다. */
+    private record ChatMessage(int id, long second, String from, String to, String text, boolean system) {}
+
+    /** 사내 알림을 보내는 이름. 이름은 2자 이상 영문·한글·숫자·_·-라 공백이 든 이 이름과 겹치지 않는다. */
+    static final String SYSTEM_SENDER = "사내 알림";
+    private static final Map<String, String> CALLED_NOTICE = Map.of(
+            "market", "%s 님이 주식 창을 보다 부장님께 불려 갔어요.",
+            "messenger", "%s 님이 메신저를 하다 부장님께 불려 갔어요.",
+            "idle", "%s 님이 일을 안 해서 부장님께 불려 갔어요.");
 
     private record Leak(String player, int newsNumber, String text) {}
 
@@ -548,13 +556,30 @@ public class LobbySocket extends TextWebSocketHandler {
         }
         lobby.lastChatNanos.put(player, now);
         var message = new ChatMessage(lobby.chats.isEmpty() ? 1 : lobby.chats.getLast().id() + 1,
-                playing ? lobby.tick * Market.TICK_SECONDS : -1, from, recipient == null ? null : target, text);
+                playing ? lobby.tick * Market.TICK_SECONDS : -1, from, recipient == null ? null : target, text, false);
         lobby.chats.add(message);
         if (lobby.chats.size() > MAX_CHAT_HISTORY) lobby.chats.removeFirst();
         for (var entry : lobby.clients.entrySet()) {
             if (recipient == null || entry.getKey().equals(player) || entry.getKey().equals(recipient)) {
                 send(entry.getValue(), Map.of("type", "chat", "message", message));
             }
+        }
+    }
+
+    /** 방금 훈계로 불려 간 동료를 단체방에 사내 알림으로 알린다. 솔로 방에는 메신저가 없다. */
+    private void announceMeetings(Lobby lobby) throws IOException {
+        if (lobby.patrol.justCalled.isEmpty()) return;
+        var called = List.copyOf(lobby.patrol.justCalled);
+        lobby.patrol.justCalled.clear();
+        if (lobby.solo) return;
+        for (var player : called) {
+            var reason = lobby.patrol.seats.get(player).meetingReason;
+            var text = CALLED_NOTICE.getOrDefault(reason, "%s 님이 부장님께 불려 갔어요.").formatted(lobby.labels.get(player));
+            var message = new ChatMessage(lobby.chats.isEmpty() ? 1 : lobby.chats.getLast().id() + 1,
+                    lobby.tick * Market.TICK_SECONDS, SYSTEM_SENDER, null, text, true);
+            lobby.chats.add(message);
+            if (lobby.chats.size() > MAX_CHAT_HISTORY) lobby.chats.removeFirst();
+            for (var session : lobby.clients.values()) send(session, Map.of("type", "chat", "message", message));
         }
     }
 
@@ -914,6 +939,7 @@ public class LobbySocket extends TextWebSocketHandler {
                     if (rooms.get(lobby.code) != lobby) return;
                     advanceMarket(lobby);
                     try {
+                        announceMeetings(lobby);
                         processOrders(lobby);
                         processMargin(lobby);
                         if (lobby.tick >= lobby.sessionTicks) {
