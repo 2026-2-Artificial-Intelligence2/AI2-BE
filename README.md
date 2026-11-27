@@ -177,8 +177,10 @@ java -jar build/libs/office-stock.jar --game.allowed-origins='http://localhost:*
 | `game.loan-max-won` | 10000000 | 비상 대출 상한 |
 | `game.allowed-origins` | `http://localhost:*,http://127.0.0.1:*` | WebSocket을 허용할 화면 주소 |
 | `game.playtest-log` | `playtest/work-times.csv` | 업무 시간 기록 파일 |
-| `game.boss-llm-model` | `claude-haiku-5-5` | 부장님 매매 판단·혼잣말에 쓸 Claude 모델. 환경 변수 `ANTHROPIC_API_KEY`가 있을 때만 쓰고, 없으면 규칙으로 판단한다. |
-| `game.boss-llm-max-calls` | 40 | 한 판에 Claude에게 묻는 최대 횟수(비용 상한). 넘으면 규칙으로 판단한다. |
+| `game.boss-llm-provider` | `auto` | 부장님 매매 판단·혼잣말. `auto`면 `OPENAI_API_KEY`가 있으면 OpenAI, 없고 `ANTHROPIC_API_KEY`가 있으면 Claude, 둘 다 없으면 규칙. `openai`·`anthropic`·`off`로 고를 수 있다. 키는 백엔드 폴더의 `.env`(커밋 금지, `.env.example` 참고)나 환경 변수에서 읽는다. |
+| `game.boss-llm-openai-model` | `gpt-6-luna` | OpenAI 모델(추론 강도 low) |
+| `game.boss-llm-anthropic-model` | `claude-haiku-5-5` | Claude 모델 |
+| `game.boss-llm-max-calls` | 40 | 한 판에 묻는 최대 횟수(비용 상한). 넘으면 규칙으로 판단한다. |
 | `game.stocks-per-game` | `12` | 한 판에 무작위로 상장하는 일반 종목 수(0이면 전부). 기초 종목이 뽑힌 레버리지 종목은 따로 더해진다. |
 | `game.stock-catalog` | `classpath:market/stocks.json` | 종목 목록 |
 | `game.news-catalog` | `classpath:market/news.json` | 뉴스와 찌라시 문구 |

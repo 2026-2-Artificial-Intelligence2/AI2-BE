@@ -5,6 +5,11 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.StructuredMessageCreateParams;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import com.openai.client.OpenAIClient;
+import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.models.ReasoningEffort;
+import com.openai.models.chat.completions.ChatCompletionCreateParams;
+import com.openai.models.chat.completions.StructuredChatCompletionCreateParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,8 +25,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 부장님의 머리(선택): 뉴스가 나올 때 Claude에게 매매 판단과 혼잣말을 묻는다.
- * 서버 환경 변수 ANTHROPIC_API_KEY가 있을 때만 켜지고, 없거나 늦거나 이상한 답이 오면 규칙 판단을 그대로 쓴다.
+ * 부장님의 머리(선택): 뉴스가 나올 때 LLM에게 매매 판단과 혼잣말을 묻는다.
+ * 키는 백엔드 폴더 .env 또는 환경 변수에서 읽는다. OPENAI_API_KEY가 있으면 OpenAI, 없고 ANTHROPIC_API_KEY가 있으면
+ * Claude를 쓰고, 둘 다 없거나 늦거나 이상한 답이 오면 규칙 판단을 그대로 쓴다.
  * 순찰·판정처럼 승패에 바로 닿는 것은 서버 규칙이 정하고, 여기서는 매매와 대사만 받는다.
  */
 @Component
@@ -48,27 +54,42 @@ public class BossBrain {
             - 주문은 목록에 있는 종목 코드만 쓴다. 공매도는 없으니 가진 주식만 팔 수 있다.
             - 혼잣말은 한국어로 짧게, 회사 상사가 모니터 보며 중얼거리는 말투로. 욕설·차별·실존 인물 이름은 쓰지 않는다.
             """;
+    private static final Duration TIMEOUT = Duration.ofSeconds(8);
 
+    private final String provider;   // "openai", "anthropic", 또는 null(규칙)
     private final String model;
     private final int maxCallsPerRound;
-    private final AnthropicClient client;
+    private final OpenAIClient openai;
+    private final AnthropicClient anthropic;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public BossBrain(@Value("${game.boss-llm-model:claude-haiku-5-5}") String model,
-                     @Value("${game.boss-llm-max-calls:40}") int maxCallsPerRound) {
-        this.model = model;
+    public BossBrain(@Value("${game.boss-llm-provider:auto}") String provider,
+                     @Value("${game.boss-llm-openai-model:gpt-6-luna}") String openaiModel,
+                     @Value("${game.boss-llm-anthropic-model:claude-haiku-5-5}") String anthropicModel,
+                     @Value("${game.boss-llm-max-calls:40}") int maxCallsPerRound,
+                     @Value("${OPENAI_API_KEY:}") String openaiKey,
+                     @Value("${ANTHROPIC_API_KEY:}") String anthropicKey) {
         this.maxCallsPerRound = maxCallsPerRound;
-        var key = System.getenv("ANTHROPIC_API_KEY");
-        this.client = key == null || key.isBlank() ? null : AnthropicOkHttpClient.builder()
-                .apiKey(key)
-                .timeout(Duration.ofSeconds(8))
-                .maxRetries(0)   // 늦으면 규칙 판단으로 넘어가므로 다시 묻지 않는다.
-                .build();
-        log.info("부장님 매매 판단: {}", client == null ? "규칙(ANTHROPIC_API_KEY 없음)" : "Claude " + model);
+        boolean hasOpenAI = !openaiKey.isBlank(), hasAnthropic = !anthropicKey.isBlank();
+        String chosen = switch (provider) {
+            case "off" -> null;
+            case "openai" -> hasOpenAI ? "openai" : null;
+            case "anthropic" -> hasAnthropic ? "anthropic" : null;
+            default -> hasOpenAI ? "openai" : hasAnthropic ? "anthropic" : null;
+        };
+        this.provider = chosen;
+        this.model = "openai".equals(chosen) ? openaiModel : anthropicModel;
+        // 늦으면 규칙 판단으로 넘어가므로 다시 묻지 않는다(maxRetries 0).
+        this.openai = "openai".equals(chosen)
+                ? OpenAIOkHttpClient.builder().apiKey(openaiKey).timeout(TIMEOUT).maxRetries(0).build() : null;
+        this.anthropic = "anthropic".equals(chosen)
+                ? AnthropicOkHttpClient.builder().apiKey(anthropicKey).timeout(TIMEOUT).maxRetries(0).build() : null;
+        log.info("부장님 매매 판단: {}", chosen == null ? "규칙" + ("off".equals(provider) ? "(꺼 둠)" : "(API 키 없음)")
+                : chosen + " " + model);
     }
 
     boolean enabled() {
-        return client != null;
+        return provider != null;
     }
 
     int maxCallsPerRound() {
@@ -81,7 +102,7 @@ public class BossBrain {
      */
     CompletableFuture<List<Boss.Decision>> decide(Situation situation, java.util.Set<String> listed,
                                                   List<Boss.Decision> fallback) {
-        if (client == null) return CompletableFuture.completedFuture(fallback);
+        if (provider == null) return CompletableFuture.completedFuture(fallback);
         return CompletableFuture.supplyAsync(() -> ask(situation, listed), executor)
                 .completeOnTimeout(null, 10, TimeUnit.SECONDS)
                 .exceptionally(e -> {
@@ -92,18 +113,29 @@ public class BossBrain {
     }
 
     private List<Boss.Decision> ask(Situation s, java.util.Set<String> listed) {
-        var stocks = new StringBuilder();
-        s.stockNames().forEach((id, name) -> stocks.append("- ").append(id).append(' ').append(name)
-                .append(" 현재가 ").append(s.prices().getOrDefault(id, 0L)).append("원")
-                .append(s.holdings().getOrDefault(id, 0L) > 0 ? " (보유 " + s.holdings().get(id) + "주)" : "")
-                .append('\n'));
-        var prompt = """
-                [%s] %s
+        var prompt = prompt(s);
+        Reply reply = "openai".equals(provider) ? askOpenAI(prompt) : askAnthropic(prompt);
+        return reply == null ? null : validate(reply, listed);
+    }
 
-                내 상황: 현금 %,d원, 오늘 손익 %+.1f%%, 기분 %s
-                종목:
-                %s""".formatted(s.rumor() ? "찌라시" : "속보", s.headline(), s.cashWon(), s.profitPercent(),
-                s.mood(), stocks);
+    private Reply askOpenAI(String prompt) {
+        StructuredChatCompletionCreateParams<Reply> params = ChatCompletionCreateParams.builder()
+                .model(model)
+                .reasoningEffort(ReasoningEffort.LOW)
+                .maxCompletionTokens(2000L)
+                .addSystemMessage(SYSTEM)
+                .addUserMessage(prompt)
+                .responseFormat(Reply.class)
+                .build();
+        var completion = openai.chat().completions().create(params);
+        // 비용 확인용: 호출마다 쓴 토큰(출력에는 추론 토큰이 들어 있다).
+        completion.usage().ifPresent(u -> log.info("부장님 판단 토큰: 입력 {}, 출력 {}", u.promptTokens(), u.completionTokens()));
+        return completion.choices().stream()
+                .flatMap(choice -> choice.message().content().stream())
+                .findFirst().orElse(null);
+    }
+
+    private Reply askAnthropic(String prompt) {
         StructuredMessageCreateParams<Reply> params = MessageCreateParams.builder()
                 .model(model)
                 .maxTokens(1024L)
@@ -111,12 +143,27 @@ public class BossBrain {
                 .outputConfig(Reply.class)
                 .addUserMessage(prompt)
                 .build();
-        var reply = client.messages().create(params).content().stream()
+        var message = anthropic.messages().create(params);
+        log.info("부장님 판단 토큰: 입력 {}, 출력 {}", message.usage().inputTokens(), message.usage().outputTokens());
+        return message.content().stream()
                 .flatMap(block -> block.text().stream())
                 .map(typed -> typed.text())
                 .findFirst().orElse(null);
-        if (reply == null) return null;
-        return validate(reply, listed);
+    }
+
+    private static String prompt(Situation s) {
+        var stocks = new StringBuilder();
+        s.stockNames().forEach((id, name) -> stocks.append("- ").append(id).append(' ').append(name)
+                .append(" 현재가 ").append(s.prices().getOrDefault(id, 0L)).append("원")
+                .append(s.holdings().getOrDefault(id, 0L) > 0 ? " (보유 " + s.holdings().get(id) + "주)" : "")
+                .append('\n'));
+        return """
+                [%s] %s
+
+                내 상황: 현금 %,d원, 오늘 손익 %+.1f%%, 기분 %s
+                종목:
+                %s""".formatted(s.rumor() ? "찌라시" : "속보", s.headline(), s.cashWon(), s.profitPercent(),
+                s.mood(), stocks);
     }
 
     /** 모델 답을 검사한다: 목록에 없는 종목·이상한 행동은 버리고 비율은 0~1로 자른다. 대사는 짧게. */
