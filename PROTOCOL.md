@@ -196,7 +196,8 @@
  "portfolio":{"positions":{"MOON":{"shares":10,"costWon":10139,"avgPriceWon":1013,"valueWon":9852,"profitWon":-287,"profitPercent":-2.8}},"realizedWon":0},
  "newsNumber":3,"newsKind":"news","headline":"달나라로봇 · 야간 배송 로봇 실증 승인","newsBody":"…","newsSecond":20,"newsSymbols":["MOON"],
  "beat":10,"walking":true,"step":{"from":{"x":1,"z":-2},"to":{"x":3,"z":-2},"listener":{"position":{"x":1,"z":-1},"forwardZ":1}},
- "coughBeat":-1}
+ "coughBeat":-1,
+ "boss":{"mood":"annoyed","atDesk":true,"line":"영 시원찮네.","lineSecond":312}}
 ```
 
 | 필드 | 뜻 |
@@ -212,6 +213,7 @@
 | `portfolio` | 보유 종목별 원가·평균 매수가·청산가·손익, 신용 빚(`debtWon`)과 담보 비율(`marginRatioPercent`, 빚이 없으면 100), 확정 손익. 청산가는 "지금 혼자 전부 팔면 받을 금액(거래 비용 뺀 뒤)"이고, 퇴근 정산도 이 값으로 한다. |
 | `suspicion` | 내 업무 게이지(의심, 0~100). 나에게만 온다. 40 이상 주황, 70 이상 빨강으로 보여주면 된다. |
 | `colleagues` | 동료 목록 `[{"label":"P1","meeting":false}, …]`. 훈계 중인지만 알려준다(동료의 게이지는 보내지 않는다). 내 것은 없다. |
+| `boss` | 부장님 상태. `mood`는 부장님 손익으로 정한 기분(`furious` 격노 −8% 이하, `annoyed` 짜증 −3% 이하, `normal`, `pleased` +3% 이상, `elated` +8% 이상). `atDesk`가 true면 자기 자리(서쪽 −5.3, 0)에 앉아 있다(순찰 사이, 발소리 없음). `line`은 매매 뒤 혼잣말로 6초 동안만 오고(그 밖에는 null), `lineSecond`는 말한 판 경과 초다. 기분은 숫자로 보여 주지 말고 소리·말로만 드러낸다. |
 | `micLevels` | 마이크를 켠 사람(나 포함)의 소리 크기 `{"P1":35,"P2":0}`. 마이크를 켜지 않은 사람은 없다. 바로바로 바뀌는 값은 `mic` 메시지로 온다. |
 | `newsNumber`, `newsKind`, `headline`, `newsBody`, `newsSecond`, `newsSymbols` | 가장 최근의 속보·찌라시. `newsNumber`가 커질 때만 팝업을 띄운다. 재접속 직후에는 띄우지 않는다. |
 | `beat`, `walking`, `step` | 부장님 순찰. 2초 박자(`beat`)마다 바뀌고, `walking`이면 `step.from → step.to`로 걷는 발소리를 낸다. `listener`는 내 자리의 위치와 바라보는 방향(`forwardZ`)이다. 단위는 미터. 같은 `beat`는 한 번만 재생한다. |
@@ -223,7 +225,7 @@
 {"type":"meeting","newsNumber":3,"reason":"market"}
 ```
 
-`reason`은 `market`(주식 창 적발), `messenger`(메신저 창 적발), `idle`(업무 방치)이다. 훈계 중에는 컴퓨터를 볼 수 없으므로 시세·팝업이 오지 않는다. `newsNumber`로 놓친 속보 번호만 맞춰 두고, 끝나면 다시 `market`(view `WORK`)이 온다.
+`reason`은 `market`(주식 창 적발), `messenger`(메신저 창 적발), `idle`(업무 방치), `mood`(부장님이 크게 잃어 격노해서 잘못 없이 불려 감)이다. 부장님이 크게 벌어 신났을 때는 한 사람당 한 번 적발을 봐주고, 그 사람에게만 `notice`("부장님이 기분이 좋아서 이번 한 번은 봐줬어요…")가 온다. 퇴근 결과의 `trades`에는 부장님 매매도 `player`가 "부장님"으로 들어간다(플레이어는 이 이름을 쓸 수 없다). 훈계 중에는 컴퓨터를 볼 수 없으므로 시세·팝업이 오지 않는다. `newsNumber`로 놓친 속보 번호만 맞춰 두고, 끝나면 다시 `market`(view `WORK`)이 온다.
 
 ### `view` — 화면 전환 결과
 

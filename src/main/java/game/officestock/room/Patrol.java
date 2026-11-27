@@ -13,7 +13,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * 오래 지나면 오르고, 업무를 끝내면 내려간다. 게이지가 높을수록 순찰 대상으로 뽑히기 쉽고, 100이면
  * 부장님이 곧장 온다. 100인 채로 점검받으면 업무 창을 띄워 놔도 훈계를 받는다.
  *
- * 부장님 자리: 사무실 동쪽에 책상이 있다. 순찰과 순찰 사이에는 자리에 앉아 매매하고(발소리 없음),
+ * 부장님 자리: 사무실 서쪽(회의실 유리 앞)에 책상이 있다. 순찰과 순찰 사이에는 자리에 앉아 매매하고(발소리 없음),
  * 점검이 끝나면 자리로 걸어 돌아간다. 기분(부장님 손익)에 따라 순찰 간격·판정이 달라진다({@link Boss.Mood}).
  *
  * 소리: 마이크 소리가 50 이상(소리 막대 절반)으로 1초 이어지면 부장님이 그 사람에게 걸어간다. 떠든 것만으로 훈계하지는
@@ -63,9 +63,12 @@ final class Patrol {
             new Point(3, 0), new Point(3, 2), new Point(1, 2), new Point(-1, 2),
             new Point(-3, 2), new Point(-3, 0));
     private static final List<Integer> STOPS = List.of(1, 2, 7, 6);
-    /** 부장님 책상(의자) 자리와, 통로에서 책상으로 드나드는 지점(동쪽 가운데). */
-    static final Point DESK = new Point(6.3, 0);
-    private static final int DESK_ENTRY = 4;
+    /**
+     * 부장님 책상(의자) 자리와, 통로에서 책상으로 드나드는 지점(서쪽 가운데). 회의실 유리 앞에서 직원들 쪽(동쪽)을 본다.
+     * 동쪽에는 다른 팀 책상이 있다. 화면(office.js의 BOSS_DESK)과 같아야 한다.
+     */
+    static final Point DESK = new Point(-5.3, 0);
+    private static final int DESK_ENTRY = 9;
 
     static final class Seat {
         final int stop;
