@@ -16,8 +16,12 @@ public class ResultService {
     public static final List<Integer> BOARD_MINUTES = List.of(5, 10, 15, 20);
     private static final int BOARD_SIZE = 10;
 
-    /** 정산된 한 사람. */
-    public record Entry(UUID profileId, long netWorthWon, boolean bankrupt) {}
+    /** 정산된 한 사람. @param rank 그 판에서의 순위 */
+    public record Entry(UUID profileId, long netWorthWon, boolean bankrupt, int rank) {
+        public Entry(UUID profileId, long netWorthWon, boolean bankrupt) {
+            this(profileId, netWorthWon, bankrupt, 1);
+        }
+    }
 
     private final GameResultRepository results;
 
@@ -32,7 +36,7 @@ public class ResultService {
         var now = Instant.now();
         for (var e : entries) {
             results.save(new GameResult(e.profileId(), mode, (int) sessionSeconds, startingCashWon, e.netWorthWon(),
-                    e.bankrupt(), playerCount, roomCode, now));
+                    e.bankrupt(), playerCount, roomCode, now, e.rank()));
         }
     }
 
@@ -51,6 +55,35 @@ public class ResultService {
             boards.add(Map.of("minutes", minutes, "entries", entries));
         }
         return boards;
+    }
+
+    /** 내 전적: 요약과 최근 20판. 회원 탈퇴하면 함께 지워진다. */
+    @Transactional(readOnly = true)
+    public Map<String, Object> records(UUID profileId) {
+        var s = results.summary(profileId);
+        var summary = new java.util.LinkedHashMap<String, Object>();
+        summary.put("games", s.getGames());
+        summary.put("soloGames", s.getSoloGames());
+        summary.put("multiGames", s.getMultiGames());
+        summary.put("multiWins", s.getMultiWins());
+        summary.put("bestReturnPercent", s.getBest() == null ? null : round(s.getBest()));
+        summary.put("averageReturnPercent", s.getAverage() == null ? null : round(s.getAverage()));
+        summary.put("totalProfitWon", s.getTotalProfit() == null ? 0 : s.getTotalProfit());
+        summary.put("bankrupt", s.getBankrupt());
+        var recent = new ArrayList<Map<String, Object>>();
+        for (var r : results.findTop20ByProfileIdOrderByFinishedAtDesc(profileId)) {
+            var row = new java.util.LinkedHashMap<String, Object>();
+            row.put("mode", r.getMode());
+            row.put("minutes", Math.round(r.getSessionSeconds() / 60.0));
+            row.put("playerCount", r.getPlayerCount());
+            row.put("rank", r.getRank());
+            row.put("profitWon", r.getNetWorthWon() - r.getStartingCashWon());
+            row.put("returnPercent", round(r.getReturnPercent()));
+            row.put("bankrupt", r.isBankrupt());
+            row.put("finishedAt", r.getFinishedAt().toString());
+            recent.add(row);
+        }
+        return Map.of("summary", summary, "recent", recent);
     }
 
     private static double round(double value) {

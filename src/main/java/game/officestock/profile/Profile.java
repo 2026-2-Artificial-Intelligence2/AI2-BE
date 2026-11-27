@@ -22,6 +22,9 @@ public class Profile {
     /** 꾸미기 설정(JSON 객체 문자열). 내용은 프론트엔드가 정한다. */
     @Column(nullable = false)
     private String customization;
+    /** 비밀번호 복구 코드의 BCrypt 해시. 아직 만들지 않았으면 비어 있다. */
+    @Column(name = "recovery_hash", length = 100)
+    private String recoveryHash;
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
     @Column(name = "updated_at", nullable = false)
@@ -42,6 +45,12 @@ public class Profile {
     public String getName() { return name; }
     public String getCustomization() { return customization; }
     String getPasswordHash() { return passwordHash; }
+    String getRecoveryHash() { return recoveryHash; }
+
+    void setRecovery(String recoveryHash, Instant now) {
+        this.recoveryHash = recoveryHash;
+        this.updatedAt = now;
+    }
 
     void changePassword(String passwordHash, Instant now) {
         this.passwordHash = passwordHash;

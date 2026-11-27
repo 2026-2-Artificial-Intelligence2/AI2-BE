@@ -34,19 +34,33 @@
 
 | 명령 | 언제 | 설명 |
 |---|---|---|
-| `SIGNUP 김대리 비밀번호` | 방 밖 | 회원 가입. 이름은 한글·영문·숫자·`_`·`-` 2~10자(공백 없음), 전체에서 겹치지 않는다(대소문자 무시), `P1` 같은 이름은 안 된다. 비밀번호는 6~64자이고 공백이 있어도 된다(이름 뒤 나머지 전부). `profile`(열쇠 포함)이 온다. |
+| `SIGNUP 김대리 비밀번호` | 방 밖 | 회원 가입. 이름은 한글·영문·숫자·`_`·`-` 2~10자(공백 없음), 전체에서 겹치지 않는다(대소문자 무시), `P1` 같은 이름은 안 된다. 비밀번호는 6~64자이고 공백이 있어도 된다(이름 뒤 나머지 전부). `profile`(열쇠와 `recoveryCode` 포함)이 온다. 복구 코드는 이때 한 번만 오므로 화면이 꼭 보여 주고 저장하라고 안내한다. |
 | `LOGIN 김대리 비밀번호` | 방 밖 | 로그인. 이 기기용 새 열쇠를 준다. 같은 이름으로 5번 틀리면 1분 동안 막힌다. |
+| `RESET 김대리 ABCD-EFGH-JKMN-PQRS 새비밀번호` | 방 밖 | 비밀번호를 잊었을 때. 이름 + 복구 코드(대소문자·하이픈·공백 무시)로 새 비밀번호를 정한다. 모든 기기의 로그인을 풀고 이 기기에 새 열쇠를 준다. 쓴 코드는 버리고 새 `recoveryCode`를 `profile`에 실어 준다. 틀리면 로그인과 함께 5번에 1분 막힌다. |
 | `AUTOLOGIN 열쇠` | 방 밖 | 보관한 열쇠로 자동 로그인. 성공하면 `profile`(열쇠 없음), 실패하면 `profileFailed`(열쇠를 지우고 로그인 화면으로). |
 | `LOGOUT` | 방 밖 | 이 기기의 열쇠를 지운다. 다른 기기의 로그인은 그대로다. `loggedOut`이 온다. |
 | `GUEST 닉네임` | 방 밖 | 비회원으로 한다. 이름 규칙은 회원과 같고 회원 이름과 겹치면 안 된다. `guest`가 온다. |
 | `PROFILE NAME 새이름` | 회원, 언제나 | 이름을 바꾼다. 이미 들어가 있는 방에서는 다음 방부터 바뀐다. |
 | `PROFILE CUSTOM {"hair":"red"}` | 회원, 언제나 | 꾸미기 설정 저장. JSON 객체, 2,000자 이내. 내용은 프론트엔드가 정한다. |
 | `PROFILE PASSWORD 새비밀번호` | 회원, 언제나 | 비밀번호를 바꾼다. `notice`가 온다. |
+| `PROFILE RECOVERY` | 회원, 언제나 | 복구 코드를 새로 만든다. 예전 코드는 더는 쓸 수 없다. `{"type":"recoveryCode","code":"…"}`가 온다. |
+| `PROFILE DELETE 비밀번호` | 회원, 방 밖 | 회원 탈퇴. 비밀번호를 확인하고 프로필·모든 기기의 로그인·판 결과(명예의 전당 기록 포함)를 지운다. `{"type":"accountDeleted","message":"…"}`가 오면 화면은 보관한 열쇠를 지우고 입장 화면으로 간다. |
+| `RECORDS` | 회원, 언제나 | 내 전적. `records`가 온다(아래). |
 | `LEADERBOARD` | 언제나 | 솔로 명예의 전당(`leaderboard`). 로그인하지 않아도 된다. |
 
 - 방에서는 회원 이름이나 비회원 닉네임으로 불린다. `state.members[].label`, `youLabel`, 메신저의 `from`·`to`, `CHAT 이름 내용`의 받는 사람, `result`의 `player`가 모두 그 이름이다. `state.members[].member`가 true면 회원이다.
 - 같은 회원으로 같은 방에 두 번(다른 창) 들어갈 수 없고, 방에 같은 이름이 있으면 들어갈 수 없다.
 - 퇴근 정산 때 회원의 결과만 저장된다. `result.recorded`(저장됐는지)와 `result.recordNotice`(안내 문구)가 온다.
+
+```json
+{"type":"records",
+ "summary":{"games":12,"soloGames":5,"multiGames":7,"multiWins":2,"bestReturnPercent":31.5,"averageReturnPercent":3.2,
+            "totalProfitWon":4520000,"bankrupt":1},
+ "recent":[{"mode":"multi","minutes":10,"playerCount":3,"rank":1,"profitWon":1250000,"returnPercent":12.5,
+            "bankrupt":false,"finishedAt":"2026-11-28T03:12:45Z"}, …]}
+```
+
+`recent`는 최근 20판(최근 것부터)이다. `rank`는 그 판의 순위이고, 순위를 저장하기 전(V3 이전)에 끝난 판은 null이다. 판이 없으면 `bestReturnPercent`·`averageReturnPercent`가 null이다.
 
 ### 방
 

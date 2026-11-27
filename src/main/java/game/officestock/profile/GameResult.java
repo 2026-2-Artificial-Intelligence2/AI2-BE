@@ -37,11 +37,15 @@ public class GameResult {
     private String roomCode;
     @Column(name = "finished_at", nullable = false)
     private Instant finishedAt;
+    /** 그 판에서의 순위. V3 전에 저장한 결과는 비어 있다. */
+    @Column(name = "rank")
+    private Integer rank;
 
     protected GameResult() {}
 
     GameResult(UUID profileId, String mode, int sessionSeconds, long startingCashWon, long netWorthWon,
-               boolean bankrupt, int playerCount, String roomCode, Instant finishedAt) {
+               boolean bankrupt, int playerCount, String roomCode, Instant finishedAt, int rank) {
+        this.rank = rank;
         this.profileId = profileId;
         this.mode = mode;
         this.sessionSeconds = sessionSeconds;
@@ -53,4 +57,14 @@ public class GameResult {
         this.roomCode = roomCode;
         this.finishedAt = finishedAt;
     }
+
+    public String getMode() { return mode; }
+    public int getSessionSeconds() { return sessionSeconds; }
+    public long getStartingCashWon() { return startingCashWon; }
+    public long getNetWorthWon() { return netWorthWon; }
+    public double getReturnPercent() { return returnPercent; }
+    public boolean isBankrupt() { return bankrupt; }
+    public int getPlayerCount() { return playerCount; }
+    public Instant getFinishedAt() { return finishedAt; }
+    public Integer getRank() { return rank; }
 }

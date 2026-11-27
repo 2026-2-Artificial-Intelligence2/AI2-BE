@@ -114,4 +114,45 @@ class ProfileServiceTest {
         assertThatThrownBy(() -> profiles.checkGuestName(name)).hasMessageContaining("회원이 쓰는 이름");
         profiles.checkGuestName("손님" + SEQ.incrementAndGet());
     }
+
+    @Test
+    void 가입하면_복구_코드를_주고_그_코드로_비밀번호를_되찾는다() {
+        var name = newName();
+        var first = profiles.signup(name, "secret1");
+        var code = first.recoveryCode();
+        assertThat(code).matches("[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}");
+
+        // 옮겨 적다 소문자·공백이 섞여도 된다.
+        var reset = profiles.resetPassword(name, code.toLowerCase().replace("-", " "), "new pass 1");
+        assertThat(reset.profile().id()).isEqualTo(first.profile().id());
+        assertThat(reset.recoveryCode()).isNotEqualTo(code);
+        assertThat(profiles.login(name, "new pass 1").profile().id()).isEqualTo(first.profile().id());
+        assertThatThrownBy(() -> profiles.login(name, "secret1")).hasMessageContaining("맞지 않습니다");
+        // 다른 기기의 로그인은 풀리고, 쓴 코드는 다시 쓸 수 없다.
+        assertThatThrownBy(() -> profiles.resume(first.token())).hasMessageContaining("로그인이 풀렸습니다");
+        assertThat(profiles.resume(reset.token()).name()).isEqualTo(name);
+        assertThatThrownBy(() -> profiles.resetPassword(name, code, "another1")).hasMessageContaining("복구 코드");
+        assertThat(profiles.resetPassword(name, reset.recoveryCode(), "another1").profile().name()).isEqualTo(name);
+    }
+
+    @Test
+    void 복구_코드를_새로_만들면_예전_코드는_못_쓴다() {
+        var name = newName();
+        var session = profiles.signup(name, "secret1");
+        var renewed = profiles.renewRecoveryCode(session.profile().id());
+        assertThatThrownBy(() -> profiles.resetPassword(name, session.recoveryCode(), "secret2")).hasMessageContaining("복구 코드");
+        assertThat(profiles.resetPassword(name, renewed, "secret2").profile().name()).isEqualTo(name);
+    }
+
+    @Test
+    void 탈퇴는_비밀번호를_확인하고_로그인을_모두_지운다() {
+        var name = newName();
+        var session = profiles.signup(name, "secret1");
+        assertThatThrownBy(() -> profiles.delete(session.profile().id(), "wrong!!")).hasMessageContaining("비밀번호");
+        profiles.delete(session.profile().id(), "secret1");
+        assertThatThrownBy(() -> profiles.login(name, "secret1")).hasMessageContaining("맞지 않습니다");
+        assertThatThrownBy(() -> profiles.resume(session.token())).hasMessageContaining("로그인이 풀렸습니다");
+        // 이름이 비어 다른 사람이 쓸 수 있다.
+        assertThat(profiles.signup(name, "secret9").profile().name()).isEqualTo(name);
+    }
 }
