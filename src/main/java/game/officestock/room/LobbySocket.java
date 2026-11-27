@@ -321,11 +321,19 @@ public class LobbySocket extends TextWebSocketHandler {
     private void handleCommand(WebSocketSession session, String command) throws IOException {
         var member = (Membership) session.getAttributes().get(MEMBERSHIP);
         if (command.startsWith("PROFILE ")) {
-            profileCommand(session, command.substring(8).strip());
+            profileCommand(session, command.substring(8).strip(), member != null);
+            return;
+        }
+        if (command.equals("RECORDS")) {
+            var profile = (ProfileService.View) session.getAttributes().get(PROFILE);
+            if (profile == null) throw new IllegalStateException("회원만 전적을 볼 수 있습니다. 로그인하세요.");
+            var records = new LinkedHashMap<String, Object>(results.records(profile.id()));
+            records.put("type", "records");
+            send(session, records);
             return;
         }
         if (command.startsWith("SIGNUP ") || command.startsWith("LOGIN ") || command.startsWith("AUTOLOGIN ")
-                || command.equals("LOGOUT") || command.startsWith("GUEST ")) {
+                || command.equals("LOGOUT") || command.startsWith("GUEST ") || command.startsWith("RESET ")) {
             if (member != null) throw new IllegalStateException("방에서 나온 뒤에 로그인·로그아웃할 수 있습니다.");
             accountCommand(session, command);
             return;
@@ -1013,7 +1021,7 @@ public class LobbySocket extends TextWebSocketHandler {
             lobby.labels.forEach((player, label) -> {
                 var profileId = lobby.profileIds.get(player);
                 if (profileId != null && label.equals(standing.player()))
-                    entries.add(new ResultService.Entry(profileId, standing.netWorthWon(), standing.bankrupt()));
+                    entries.add(new ResultService.Entry(profileId, standing.netWorthWon(), standing.bankrupt(), standing.rank()));
             });
         }
         if (entries.isEmpty()) return;
@@ -1206,7 +1214,8 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final String LOGIN_TOKEN = "loginToken", GUEST = "guest";
 
     /**
-     * SIGNUP 이름 비밀번호 / LOGIN 이름 비밀번호 / AUTOLOGIN 열쇠 / LOGOUT / GUEST 닉네임. 방 밖에서만 쓴다.
+     * SIGNUP 이름 비밀번호 / LOGIN 이름 비밀번호 / AUTOLOGIN 열쇠 / LOGOUT / GUEST 닉네임 /
+     * RESET 이름 복구코드 새비밀번호. 방 밖에서만 쓴다.
      * 회원은 기록·꾸미기가 남고 명예의 전당에 오른다. 비회원은 닉네임만 쓰고 아무것도 저장하지 않는다.
      */
     private void accountCommand(WebSocketSession session, String command) throws IOException {
@@ -1240,6 +1249,14 @@ public class LobbySocket extends TextWebSocketHandler {
             send(session, profileMessage(found, null));
             return;
         }
+        if (command.startsWith("RESET ")) {
+            var parts = command.substring(6).strip().split(" ", 3);
+            if (parts.length < 3) throw new IllegalArgumentException("이름, 복구 코드, 새 비밀번호를 함께 보내세요.");
+            var reset = profiles.resetPassword(parts[0], parts[1], parts[2]);
+            signIn(session, reset.profile(), reset.token());
+            send(session, profileMessage(reset.profile(), reset.token(), reset.recoveryCode()));
+            return;
+        }
         boolean signup = command.startsWith("SIGNUP ");
         var rest = command.substring(signup ? 7 : 6).strip();
         int space = rest.indexOf(' ');
@@ -1248,7 +1265,7 @@ public class LobbySocket extends TextWebSocketHandler {
         var password = rest.substring(space + 1);
         var result = signup ? profiles.signup(name, password) : profiles.login(name, password);
         signIn(session, result.profile(), result.token());
-        send(session, profileMessage(result.profile(), result.token()));
+        send(session, profileMessage(result.profile(), result.token(), result.recoveryCode()));
     }
 
     private static void signIn(WebSocketSession session, ProfileService.View profile, String token) {
@@ -1261,8 +1278,11 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final String GUEST_NOTICE =
             "비회원은 판 결과와 꾸미기가 저장되지 않고 명예의 전당에도 오르지 않습니다. 기록을 남기려면 회원 가입하세요.";
 
-    /** PROFILE NAME 새이름 / PROFILE CUSTOM {json} / PROFILE PASSWORD 새비밀번호. 회원만, 방 안에서도 쓸 수 있다. */
-    private void profileCommand(WebSocketSession session, String rest) throws IOException {
+    /**
+     * PROFILE NAME 새이름 / PROFILE CUSTOM {json} / PROFILE PASSWORD 새비밀번호 / PROFILE RECOVERY(복구 코드 새로 만들기)는
+     * 회원만, 방 안에서도 쓸 수 있다. PROFILE DELETE 비밀번호(회원 탈퇴)는 방 밖에서만.
+     */
+    private void profileCommand(WebSocketSession session, String rest, boolean inRoom) throws IOException {
         int space = rest.indexOf(' ');
         var verb = space < 0 ? rest : rest.substring(0, space);
         var arg = space < 0 ? "" : rest.substring(space + 1).strip();
@@ -1280,17 +1300,32 @@ public class LobbySocket extends TextWebSocketHandler {
                 profiles.changePassword(current.id(), rest.substring(space + 1));
                 send(session, Map.of("type", "notice", "message", "비밀번호를 바꿨습니다."));
             }
-            default -> throw new IllegalArgumentException("PROFILE 명령은 NAME, CUSTOM, PASSWORD 중 하나입니다.");
+            case "RECOVERY" -> send(session, Map.of("type", "recoveryCode", "code", profiles.renewRecoveryCode(current.id())));
+            case "DELETE" -> {
+                if (inRoom) throw new IllegalStateException("방에서 나온 뒤에 탈퇴할 수 있습니다.");
+                if (space < 0) throw new IllegalArgumentException("비밀번호를 함께 보내세요.");
+                profiles.delete(current.id(), rest.substring(space + 1));
+                session.getAttributes().remove(PROFILE);
+                session.getAttributes().remove(LOGIN_TOKEN);
+                send(session, Map.of("type", "accountDeleted", "message", "회원 탈퇴가 끝났습니다. 기록도 모두 지웠습니다."));
+            }
+            default -> throw new IllegalArgumentException("PROFILE 명령은 NAME, CUSTOM, PASSWORD, RECOVERY, DELETE 중 하나입니다.");
         }
     }
 
     private static Map<String, Object> profileMessage(ProfileService.View profile, String token) {
+        return profileMessage(profile, token, null);
+    }
+
+    /** @param recoveryCode 새로 만든 복구 코드(가입·복구 때만). 화면이 한 번 보여 주고 버린다. */
+    private static Map<String, Object> profileMessage(ProfileService.View profile, String token, String recoveryCode) {
         var message = new LinkedHashMap<String, Object>();
         message.put("type", "profile");
         message.put("member", true);
         message.put("name", profile.name());
         message.put("customization", profile.customization());
         if (token != null) message.put("token", token);
+        if (recoveryCode != null) message.put("recoveryCode", recoveryCode);
         return message;
     }
 

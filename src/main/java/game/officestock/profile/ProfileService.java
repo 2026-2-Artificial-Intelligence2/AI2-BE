@@ -22,6 +22,9 @@ import java.util.regex.Pattern;
 /**
  * 회원 가입·로그인과 프로필(이름·꾸미기). 회원은 이름 + 비밀번호로 어느 기기에서든 로그인하고,
  * 로그인하면 그 기기용 자동 로그인 열쇠를 받는다. 비회원(게스트)은 저장하지 않고 이름 규칙만 확인한다.
+ *
+ * 이메일을 받지 않으므로 비밀번호를 잊으면 복구 코드로 되찾는다. 복구 코드는 가입 때(또는 내 정보에서 새로 만들 때)
+ * 한 번만 보여 주고 해시만 남긴다. 한 번 쓰면 새 코드로 바뀐다.
  */
 @Service
 public class ProfileService {
@@ -38,8 +41,19 @@ public class ProfileService {
     /** 화면에 보낼 프로필. customization은 JSON 객체. */
     public record View(UUID id, String name, JsonNode customization) {}
 
-    /** 가입·로그인 결과. token은 이 기기의 자동 로그인 열쇠(원문은 이때 한 번만 준다). */
-    public record Session(View profile, String token) {}
+    /**
+     * 가입·로그인 결과. token은 이 기기의 자동 로그인 열쇠(원문은 이때 한 번만 준다).
+     * recoveryCode는 새로 만든 복구 코드(가입·복구 때만, 아니면 null).
+     */
+    public record Session(View profile, String token, String recoveryCode) {
+        Session(View profile, String token) {
+            this(profile, token, null);
+        }
+    }
+
+    /** 복구 코드 글자: 헷갈리는 0/O, 1/I/L을 뺀 대문자·숫자. 16자 = 약 80비트. */
+    private static final String RECOVERY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    private static final int RECOVERY_LENGTH = 16;
 
     private record Failures(int count, long lockedUntil) {}
 
@@ -62,31 +76,90 @@ public class ProfileService {
         if (profiles.existsByNameIgnoreCase(name)) throw new IllegalArgumentException("이미 있는 이름입니다: " + name);
         checkPassword(password);
         var profile = new Profile(name, passwords.encode(password), Instant.now());
+        var code = newRecoveryCode();
+        profile.setRecovery(passwords.encode(normalizeRecovery(code)), Instant.now());
         try {
             profiles.saveAndFlush(profile);
         } catch (DataIntegrityViolationException e) {
             throw new IllegalArgumentException("이미 있는 이름입니다: " + name);
         }
-        return new Session(view(profile), issueToken(profile.getId()));
+        return new Session(view(profile), issueToken(profile.getId()), code);
     }
 
     @Transactional
     public Session login(String name, String password) {
+        var profile = checked(name, p -> p.getPasswordHash() != null && passwords.matches(password, p.getPasswordHash()),
+                "이름이나 비밀번호가 맞지 않습니다.");
+        return new Session(view(profile), issueToken(profile.getId()));
+    }
+
+    /**
+     * 비밀번호를 잊었을 때: 이름 + 복구 코드로 새 비밀번호를 정한다. 모든 기기의 로그인을 풀고(다른 사람이 쓰고 있었을 수 있다)
+     * 이 기기에만 새 열쇠를 준다. 쓴 복구 코드는 버리고 새 코드를 준다. 틀리면 로그인과 같이 5번에 1분 잠긴다.
+     */
+    @Transactional
+    public Session resetPassword(String name, String recoveryCode, String newPassword) {
+        checkPassword(newPassword);
+        var profile = checked(name, p -> p.getRecoveryHash() != null
+                && passwords.matches(normalizeRecovery(recoveryCode), p.getRecoveryHash()),
+                "이름이나 복구 코드가 맞지 않습니다.");
+        var now = Instant.now();
+        profile.changePassword(passwords.encode(newPassword), now);
+        var code = newRecoveryCode();
+        profile.setRecovery(passwords.encode(normalizeRecovery(code)), now);
+        tokens.deleteAllOfProfile(profile.getId());
+        return new Session(view(profile), issueToken(profile.getId()), code);
+    }
+
+    /** 내 정보에서 복구 코드를 새로 만든다. 예전 코드는 더는 쓸 수 없다. */
+    @Transactional
+    public String renewRecoveryCode(UUID id) {
+        var profile = profiles.findById(id).orElseThrow(() -> new IllegalStateException("회원 정보가 없습니다."));
+        var code = newRecoveryCode();
+        profile.setRecovery(passwords.encode(normalizeRecovery(code)), Instant.now());
+        return code;
+    }
+
+    /** 회원 탈퇴: 비밀번호를 한 번 더 확인하고 프로필·로그인 열쇠·판 결과를 모두 지운다(DB가 함께 지운다). */
+    @Transactional
+    public void delete(UUID id, String password) {
+        var profile = profiles.findById(id).orElseThrow(() -> new IllegalStateException("회원 정보가 없습니다."));
+        if (profile.getPasswordHash() == null || !passwords.matches(password, profile.getPasswordHash()))
+            throw new IllegalArgumentException("비밀번호가 맞지 않습니다.");
+        profiles.delete(profile);
+        profiles.flush();
+    }
+
+    /** 이름으로 찾아 확인한다. 같은 이름으로 여러 번 틀리면 잠깐 막는다(로그인·복구가 함께 센다). */
+    private Profile checked(String name, java.util.function.Predicate<Profile> matches, String wrong) {
         var key = name.toLowerCase();
         var failed = failures.get(key);
         if (failed != null && failed.lockedUntil() > System.currentTimeMillis())
-            throw new IllegalStateException("비밀번호를 여러 번 틀렸습니다. 1분 뒤에 다시 하세요.");
+            throw new IllegalStateException("여러 번 틀렸습니다. 1분 뒤에 다시 하세요.");
         var profile = profiles.findByNameIgnoreCase(name).orElse(null);
-        boolean ok = profile != null && profile.getPasswordHash() != null
-                && passwords.matches(password, profile.getPasswordHash());
-        if (!ok) {
+        if (profile == null || !matches.test(profile)) {
             int count = failed == null ? 1 : failed.count() + 1;
             failures.put(key, count >= MAX_FAILURES
                     ? new Failures(0, System.currentTimeMillis() + LOCK_MILLIS) : new Failures(count, 0));
-            throw new IllegalArgumentException("이름이나 비밀번호가 맞지 않습니다.");
+            throw new IllegalArgumentException(wrong);
         }
         failures.remove(key);
-        return new Session(view(profile), issueToken(profile.getId()));
+        return profile;
+    }
+
+    /** ABCD-EFGH-JKMN-PQRS 꼴. */
+    private String newRecoveryCode() {
+        var code = new StringBuilder();
+        for (int i = 0; i < RECOVERY_LENGTH; i++) {
+            if (i > 0 && i % 4 == 0) code.append('-');
+            code.append(RECOVERY_ALPHABET.charAt(random.nextInt(RECOVERY_ALPHABET.length())));
+        }
+        return code.toString();
+    }
+
+    /** 사람이 옮겨 적은 코드: 대소문자·하이픈·공백을 가리지 않는다. */
+    private static String normalizeRecovery(String code) {
+        return code == null ? "" : code.replaceAll("[\\s-]", "").toUpperCase();
     }
 
     /** 이 기기에 보관한 열쇠로 자동 로그인한다. */

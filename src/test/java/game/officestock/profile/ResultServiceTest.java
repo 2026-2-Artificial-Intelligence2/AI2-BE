@@ -47,4 +47,31 @@ class ResultServiceTest {
         assertThat(mine.get(1).get("averageReturnPercent")).isEqualTo(11.0);
         assertThat(boards).extracting(b -> b.get("minutes")).containsExactly(5, 10, 15, 20);
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 내_전적은_요약과_최근_판을_주고_탈퇴하면_함께_지워진다() {
+        var me = profiles.signup("전적이" + System.nanoTime() % 1000, "secret1").profile();
+        long start = 10_000_000;
+        results.record("solo", 600, start, "222221", 1, List.of(new ResultService.Entry(me.id(), 11_000_000, false, 1)));
+        results.record("multi", 300, start, "222222", 3, List.of(new ResultService.Entry(me.id(), 9_000_000, false, 1)));
+        results.record("multi", 300, start, "222223", 3, List.of(new ResultService.Entry(me.id(), 8_000_000, false, 3)));
+
+        var records = results.records(me.id());
+        var summary = (Map<String, Object>) records.get("summary");
+        assertThat(summary.get("games")).isEqualTo(3L);
+        assertThat(summary.get("soloGames")).isEqualTo(1L);
+        assertThat(summary.get("multiGames")).isEqualTo(2L);
+        assertThat(summary.get("multiWins")).isEqualTo(1L);
+        assertThat(summary.get("bestReturnPercent")).isEqualTo(10.0);
+        assertThat(summary.get("totalProfitWon")).isEqualTo(-2_000_000L);
+        var recent = (List<Map<String, Object>>) records.get("recent");
+        assertThat(recent).hasSize(3);
+        assertThat(recent.get(0).get("rank")).isEqualTo(3);           // 최근 것부터
+        assertThat(recent.get(0).get("profitWon")).isEqualTo(-2_000_000L);
+        assertThat(recent.get(2).get("mode")).isEqualTo("solo");
+
+        profiles.delete(me.id(), "secret1");
+        assertThat(((Map<String, Object>) results.records(me.id()).get("summary")).get("games")).isEqualTo(0L);
+    }
 }
