@@ -327,6 +327,10 @@ public class LobbySocket extends TextWebSocketHandler {
                     throw new IllegalStateException("종료된 방입니다.");
                 }
                 if (command.equals("LEAVE")) {
+                    if (!lobby.solo && lobby.started() && member.player().equals(lobby.game.snapshot().hostId())) {
+                        backToLobby(lobby);
+                        return;
+                    }
                     session.getAttributes().remove(MEMBERSHIP);
                     send(session, Map.of("type", "closed", "message", "방에서 나왔습니다."));
                     leave(lobby, member.player());
@@ -1009,13 +1013,13 @@ public class LobbySocket extends TextWebSocketHandler {
         // 동료 목록(훈계 중인지). 업무 게이지(의심)는 본인에게만 suspicion으로 보낸다.
         var colleagues = new LinkedHashMap<UUID, Map<String, Object>>();
         lobby.patrol.seats.forEach((id, s) -> colleagues.put(id, Map.of("label", lobby.labels.get(id),
-                "meeting", s.view == Patrol.View.MEETING)));
+                "meeting", s.view == Patrol.View.MEETING, "seat", s.listener.position())));
         var micLevels = micLevels(lobby);
         for (var entry : lobby.clients.entrySet()) {
             var seat = lobby.patrol.seats.get(entry.getKey());
             if (seat.view == Patrol.View.MEETING) {
                 send(entry.getValue(), Map.of("type", "meeting", "newsNumber", latest.number(),
-                        "reason", seat.meetingReason));
+                        "reason", seat.meetingReason, "seat", seat.listener.position()));
                 continue;
             }
             var wallet = lobby.desks.get(entry.getKey()).wallet();
@@ -1485,6 +1489,21 @@ public class LobbySocket extends TextWebSocketHandler {
             lobby.game.leave(player);
             broadcast(lobby);
         }
+    }
+
+    /**
+     * 방장이 게임 중이나 퇴근 뒤에 나가기를 누른 경우. 방을 닫지 않고 이번 판을 끝내 모두 같은 방 대기실로 돌린다.
+     * 대기실에서 나가기를 누르면 leave()에서 지금처럼 방이 닫힌다.
+     */
+    private void backToLobby(Lobby lobby) throws IOException {
+        if (lobby.marketClock != null) lobby.marketClock.interrupt();
+        if (!lobby.finished) {
+            lobby.desks.forEach((id, desk) -> playtest.summary(lobby.logName(), lobby.labels.get(id), desk.timings()));
+        }
+        lobby.game.reset(lobby.game.snapshot().hostId());
+        lobby.nextRound(newMarket(lobby.sessionSeconds, lobby.solo));
+        log.info("방 {} 방장이 나가 {}번째 판 대기실로 돌아감", lobby.code, lobby.round);
+        broadcast(lobby);
     }
 
     private void close(Lobby lobby, String reason) throws IOException {
