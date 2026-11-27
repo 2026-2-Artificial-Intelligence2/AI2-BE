@@ -95,6 +95,39 @@ class GameFlowTest {
     }
 
     @Test
+    void 텍스트_마이크_오류와_ID가_붙은_요청_응답을_구분한다() throws Exception {
+        var player = connect();
+        assertThat(player.await("hello", m -> true, 0).path("requestIds").asBoolean()).isTrue();
+
+        // 기존 클라이언트와 동일한 텍스트 명령.
+        player.request("CREATE", "state");
+
+        int from = player.received.size();
+        player.send("MIC 101");
+        player.send("""
+                {"requestId":"duration-1","command":"LENGTH 5"}
+                """);
+        var micError = player.await("error", m -> true, from);
+        assertThat(micError.path("command").asText()).isEqualTo("MIC");
+        assertThat(micError.has("requestId")).isFalse();
+        from = player.received.indexOf(micError) + 1;
+        player.await("state", m -> m.path("sessionSeconds").asInt() == 300, from);
+        player.await("ack", m -> m.path("requestId").asText().equals("duration-1"), from);
+
+        var invalidDuration = player.request("""
+                {"requestId":"duration-2","command":"LENGTH 99"}
+                """, "error");
+        assertThat(invalidDuration.path("command").asText()).isEqualTo("LENGTH");
+        assertThat(invalidDuration.path("requestId").asText()).isEqualTo("duration-2");
+
+        var voiceError = player.request("VOICE SIGNAL P2 {}", "error");
+        assertThat(voiceError.path("command").asText()).isEqualTo("VOICE SIGNAL");
+        assertThat(voiceError.has("requestId")).isFalse();
+        assertThat(player.received).noneMatch(m -> m.path("type").asText().equals("ack")
+                && m.path("requestId").asText().equals("duration-2"));
+    }
+
+    @Test
     void 회원과_비회원이_한_판을_끝까지_하고_회원_결과만_저장된다() throws Exception {
         var tag = Long.toString(System.nanoTime() % 100_000);
         var member = connect();

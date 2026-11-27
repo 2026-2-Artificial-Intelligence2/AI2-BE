@@ -1,5 +1,6 @@
 package game.officestock.room;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import game.officestock.market.Market;
 import game.officestock.market.NewsCatalog;
@@ -253,142 +254,185 @@ public class LobbySocket extends TextWebSocketHandler {
                                 long reservedWon, long placedSecond) {}
 
     @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message)
-            throws IOException {
+    public void afterConnectionEstablished(WebSocketSession session) throws IOException {
+        send(session, Map.of("type", "hello", "requestIds", true));
+    }
+
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws IOException {
         var command = message.getPayload().strip();
-        var member = (Membership) session.getAttributes().get(MEMBERSHIP);
-        try {
-            if (command.startsWith("PROFILE ")) {
-                profileCommand(session, command.substring(8).strip());
-                return;
-            }
-            if (command.startsWith("SIGNUP ") || command.startsWith("LOGIN ") || command.startsWith("AUTOLOGIN ")
-                    || command.equals("LOGOUT") || command.startsWith("GUEST ")) {
-                if (member != null) throw new IllegalStateException("방에서 나온 뒤에 로그인·로그아웃할 수 있습니다.");
-                accountCommand(session, command);
-                return;
-            }
-            if (command.equals("LEADERBOARD")) {
-                send(session, Map.of("type", "leaderboard", "boards", results.leaderboard()));
-                return;
-            }
-            if (member != null) {
-                var lobby = member.lobby();
-                lobby.lock.lock();
-                try {
-                    if (rooms.get(lobby.code) != lobby) {
-                        throw new IllegalStateException("종료된 방입니다.");
-                    }
-                    if (command.equals("LEAVE")) {
-                        session.getAttributes().remove(MEMBERSHIP);
-                        send(session, Map.of("type", "closed", "message", "방에서 나왔습니다."));
-                        leave(lobby, member.player());
-                        return;
-                    }
-                    if (command.equals("RESTART")) {
-                        if (!lobby.finished) throw new IllegalStateException("퇴근한 뒤에 다시 할 수 있습니다.");
-                        lobby.game.reset(member.player());
-                        lobby.nextRound(newMarket(lobby.sessionSeconds, lobby.solo));
-                        log.info("방 {} {}번째 판 대기", lobby.code, lobby.round);
-                        broadcast(lobby);
-                        return;
-                    }
-                    if (command.startsWith("VOICE ")) {
-                        voiceCommand(lobby, member.player(), command.substring(6));
-                        return;
-                    }
-                    if (command.startsWith("MIC ")) {
-                        setMicLevel(lobby, member.player(), command.substring(4).strip());
-                        return;
-                    }
-                    if (command.startsWith("LENGTH ")) {
-                        setLength(lobby, member.player(), command.substring(7).strip());
-                        return;
-                    }
-                    if (lobby.solo && (command.startsWith("CHAT ") || command.startsWith("LEAK")
-                            || command.equals("MESSENGER"))) {
-                        throw new IllegalStateException("솔로 게임에는 메신저가 없습니다.");
-                    }
-                    if (command.startsWith("CHAT ")) {
-                        chat(lobby, member.player(), command.substring(5));
-                        return;
-                    }
-                    if (lobby.finished) {
-                        throw new IllegalStateException("퇴근했습니다. 결과를 확인하세요.");
-                    }
-                    if (command.startsWith("LEAK_ARTICLE ")) {
-                        var article = parseLeakArticle(command.substring("LEAK_ARTICLE ".length()));
-                        leak(lobby, member.player(), article.headline(), article.body());
-                        return;
-                    }
-                    if (command.startsWith("LEAK ")) {
-                        leak(lobby, member.player(), command.substring(5).strip(), null);
-                        return;
-                    }
-                    if (command.equals("SWITCH") || command.equals("MESSENGER")) {
-                        var seat = lobby.patrol.seats.get(member.player());
-                        if (seat == null || seat.view == Patrol.View.MEETING)
-                            throw new IllegalStateException("현재 화면을 전환할 수 없습니다.");
-                        // Tab(SWITCH): 업무 창 ↔ 주식 창, 메신저 창에서는 업무 창으로. MESSENGER: 메신저 창 열기.
-                        if (command.equals("MESSENGER")) seat.view = Patrol.View.MESSENGER;
-                        else seat.view = seat.view == Patrol.View.WORK ? Patrol.View.MARKET : Patrol.View.WORK;
-                        lobby.desks.get(member.player())
-                                .observeView(seat.view == Patrol.View.WORK, System.nanoTime());
-                        send(session, Map.of("type", "view", "view", seat.view));
-                        return;
-                    }
-                    if (command.equals("NEWS HISTORY")) {
-                        if (!lobby.desks.containsKey(member.player())) {
-                            throw new IllegalStateException("게임 시작 후 알림창을 열 수 있습니다.");
-                        }
-                        if (lobby.patrol.seats.get(member.player()).view == Patrol.View.MEETING)
-                            throw new IllegalStateException("훈계가 끝나면 확인할 수 있습니다.");
-                        send(session, Map.of("type", "newsHistory", "items", lobby.market.history()));
-                        return;
-                    }
-                    if (command.startsWith("LOAN ")) {
-                        takeLoan(lobby, member.player(), session, command.substring(5).strip());
-                        return;
-                    }
-                    if (command.startsWith("WORK ")) {
-                        submitWork(session, member, command);
-                        return;
-                    }
-                    if (command.startsWith("BUY ") || command.startsWith("SELL ")
-                            || command.startsWith("BUYWON ") || command.startsWith("SELLWON ")) {
-                        trade(session, member, command);
-                        return;
-                    }
-                    if (command.startsWith("LIMIT ")) {
-                        placeLimit(lobby, member.player(), command);
-                        return;
-                    }
-                    if (command.startsWith("CANCEL ")) {
-                        cancelOrder(lobby, member.player(), command.substring(7).strip());
-                        return;
-                    }
-                    if (!command.equals("START")) {
-                        throw new IllegalStateException("이미 방에 입장했습니다.");
-                    }
-                    start(lobby, member.player());
-                } finally {
-                    lobby.lock.unlock();
+        String requestId = null;
+        if (command.startsWith("{")) {
+            try {
+                var request = json.readTree(command);
+                var id = request.path("requestId");
+                if (!id.isTextual() || !id.textValue().matches("[A-Za-z0-9_-]{1,64}")) {
+                    sendError(session, null, "", "요청 ID 형식이 올바르지 않습니다.");
+                    return;
                 }
-            } else if (command.equals("CREATE")) {
-                create(session, false, sessionSeconds);
-            } else if (command.equals("SOLO") || command.startsWith("SOLO ")) {
-                solo(session, command.substring(4).strip());
-            } else if (command.startsWith("JOIN ")) {
-                join(session, command.substring(5).strip().toUpperCase(Locale.ROOT));
-            } else if (command.startsWith("RESUME ")) {
-                var fields = command.split("\\s+");
-                if (fields.length != 3) throw new IllegalArgumentException("재접속 정보가 올바르지 않습니다.");
-                resume(session, fields[1], fields[2]);
-            } else {
-                throw new IllegalStateException("방을 만들거나 초대 코드를 입력하세요.");
+                requestId = id.textValue();
+                var text = request.path("command");
+                if (!text.isTextual() || text.textValue().isBlank()) {
+                    sendError(session, requestId, "", "명령을 입력하세요.");
+                    return;
+                }
+                command = text.textValue().strip();
+            } catch (JsonProcessingException e) {
+                sendError(session, null, "", "요청 형식이 올바르지 않습니다.");
+                return;
             }
+        }
+
+        try {
+            handleCommand(session, command);
+            if (requestId != null) send(session, Map.of("type", "ack", "requestId", requestId));
         } catch (IllegalStateException | IllegalArgumentException e) {
-            send(session, Map.of("type", "error", "message", e.getMessage()));
+            sendError(session, requestId, command, e.getMessage());
+        }
+    }
+
+    private void sendError(WebSocketSession session, String requestId, String command, String message) throws IOException {
+        var response = new LinkedHashMap<String, Object>();
+        response.put("type", "error");
+        response.put("message", message == null ? "요청을 처리할 수 없습니다." : message);
+        String verb = command.split(" ", 2)[0];
+        if (verb.matches("[A-Z_]{1,20}")) {
+            response.put("command", command.startsWith("VOICE SIGNAL ") ? "VOICE SIGNAL" : verb);
+        }
+        if (requestId != null) response.put("requestId", requestId);
+        send(session, response);
+    }
+
+    private void handleCommand(WebSocketSession session, String command) throws IOException {
+        var member = (Membership) session.getAttributes().get(MEMBERSHIP);
+        if (command.startsWith("PROFILE ")) {
+            profileCommand(session, command.substring(8).strip());
+            return;
+        }
+        if (command.startsWith("SIGNUP ") || command.startsWith("LOGIN ") || command.startsWith("AUTOLOGIN ")
+                || command.equals("LOGOUT") || command.startsWith("GUEST ")) {
+            if (member != null) throw new IllegalStateException("방에서 나온 뒤에 로그인·로그아웃할 수 있습니다.");
+            accountCommand(session, command);
+            return;
+        }
+        if (command.equals("LEADERBOARD")) {
+            send(session, Map.of("type", "leaderboard", "boards", results.leaderboard()));
+            return;
+        }
+        if (member != null) {
+            var lobby = member.lobby();
+            lobby.lock.lock();
+            try {
+                if (rooms.get(lobby.code) != lobby) {
+                    throw new IllegalStateException("종료된 방입니다.");
+                }
+                if (command.equals("LEAVE")) {
+                    session.getAttributes().remove(MEMBERSHIP);
+                    send(session, Map.of("type", "closed", "message", "방에서 나왔습니다."));
+                    leave(lobby, member.player());
+                    return;
+                }
+                if (command.equals("RESTART")) {
+                    if (!lobby.finished) throw new IllegalStateException("퇴근한 뒤에 다시 할 수 있습니다.");
+                    lobby.game.reset(member.player());
+                    lobby.nextRound(newMarket(lobby.sessionSeconds, lobby.solo));
+                    log.info("방 {} {}번째 판 대기", lobby.code, lobby.round);
+                    broadcast(lobby);
+                    return;
+                }
+                if (command.startsWith("VOICE ")) {
+                    voiceCommand(lobby, member.player(), command.substring(6));
+                    return;
+                }
+                if (command.startsWith("MIC ")) {
+                    setMicLevel(lobby, member.player(), command.substring(4).strip());
+                    return;
+                }
+                if (command.startsWith("LENGTH ")) {
+                    setLength(lobby, member.player(), command.substring(7).strip());
+                    return;
+                }
+                if (lobby.solo && (command.startsWith("CHAT ") || command.startsWith("LEAK")
+                        || command.equals("MESSENGER"))) {
+                    throw new IllegalStateException("솔로 게임에는 메신저가 없습니다.");
+                }
+                if (command.startsWith("CHAT ")) {
+                    chat(lobby, member.player(), command.substring(5));
+                    return;
+                }
+                if (lobby.finished) {
+                    throw new IllegalStateException("퇴근했습니다. 결과를 확인하세요.");
+                }
+                if (command.startsWith("LEAK_ARTICLE ")) {
+                    var article = parseLeakArticle(command.substring("LEAK_ARTICLE ".length()));
+                    leak(lobby, member.player(), article.headline(), article.body());
+                    return;
+                }
+                if (command.startsWith("LEAK ")) {
+                    leak(lobby, member.player(), command.substring(5).strip(), null);
+                    return;
+                }
+                if (command.equals("SWITCH") || command.equals("MESSENGER")) {
+                    var seat = lobby.patrol.seats.get(member.player());
+                    if (seat == null || seat.view == Patrol.View.MEETING)
+                        throw new IllegalStateException("현재 화면을 전환할 수 없습니다.");
+                    // Tab(SWITCH): 업무 창 ↔ 주식 창, 메신저 창에서는 업무 창으로. MESSENGER: 메신저 창 열기.
+                    if (command.equals("MESSENGER")) seat.view = Patrol.View.MESSENGER;
+                    else seat.view = seat.view == Patrol.View.WORK ? Patrol.View.MARKET : Patrol.View.WORK;
+                    lobby.desks.get(member.player())
+                            .observeView(seat.view == Patrol.View.WORK, System.nanoTime());
+                    send(session, Map.of("type", "view", "view", seat.view));
+                    return;
+                }
+                if (command.equals("NEWS HISTORY")) {
+                    if (!lobby.desks.containsKey(member.player())) {
+                        throw new IllegalStateException("게임 시작 후 알림창을 열 수 있습니다.");
+                    }
+                    if (lobby.patrol.seats.get(member.player()).view == Patrol.View.MEETING)
+                        throw new IllegalStateException("훈계가 끝나면 확인할 수 있습니다.");
+                    send(session, Map.of("type", "newsHistory", "items", lobby.market.history()));
+                    return;
+                }
+                if (command.startsWith("LOAN ")) {
+                    takeLoan(lobby, member.player(), session, command.substring(5).strip());
+                    return;
+                }
+                if (command.startsWith("WORK ")) {
+                    submitWork(session, member, command);
+                    return;
+                }
+                if (command.startsWith("BUY ") || command.startsWith("SELL ")
+                        || command.startsWith("BUYWON ") || command.startsWith("SELLWON ")) {
+                    trade(session, member, command);
+                    return;
+                }
+                if (command.startsWith("LIMIT ")) {
+                    placeLimit(lobby, member.player(), command);
+                    return;
+                }
+                if (command.startsWith("CANCEL ")) {
+                    cancelOrder(lobby, member.player(), command.substring(7).strip());
+                    return;
+                }
+                if (!command.equals("START")) {
+                    throw new IllegalStateException("이미 방에 입장했습니다.");
+                }
+                start(lobby, member.player());
+            } finally {
+                lobby.lock.unlock();
+            }
+        } else if (command.equals("CREATE")) {
+            create(session, false, sessionSeconds);
+        } else if (command.equals("SOLO") || command.startsWith("SOLO ")) {
+            solo(session, command.substring(4).strip());
+        } else if (command.startsWith("JOIN ")) {
+            join(session, command.substring(5).strip().toUpperCase(Locale.ROOT));
+        } else if (command.startsWith("RESUME ")) {
+            var fields = command.split("\\s+");
+            if (fields.length != 3) throw new IllegalArgumentException("재접속 정보가 올바르지 않습니다.");
+            resume(session, fields[1], fields[2]);
+        } else {
+            throw new IllegalStateException("방을 만들거나 초대 코드를 입력하세요.");
         }
     }
 
