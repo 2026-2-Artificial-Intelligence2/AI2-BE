@@ -94,11 +94,12 @@ public class LobbySocket extends TextWebSocketHandler {
     private final com.fasterxml.jackson.databind.JsonNode voiceIceServers;
     private final ProfileService profiles;
     private final ResultService results;
+    private final BossBrain bossBrain;
     /** 세션에 붙여 두는 로그인한 프로필(ProfileService.View). */
     private static final String PROFILE = "profile";
 
     public LobbySocket(ObjectMapper json, PlaytestLog playtest, StockCatalog catalog, NewsCatalog news,
-            ProfileService profiles, ResultService results,
+            ProfileService profiles, ResultService results, BossBrain bossBrain,
             @Value("${game.starting-cash-won}") long startingCashWon,
             @Value("${game.work-reward-won}") long workRewardWon,
             @Value("${game.session-seconds}") long sessionSeconds,
@@ -136,6 +137,7 @@ public class LobbySocket extends TextWebSocketHandler {
         this.voiceIceServers = parseIceServers(json, voiceIceServers);
         this.profiles = profiles;
         this.results = results;
+        this.bossBrain = bossBrain;
         reaper.scheduleWithFixedDelay(this::reapRooms, 5, 5, TimeUnit.SECONDS);
     }
 
@@ -188,6 +190,10 @@ public class LobbySocket extends TextWebSocketHandler {
         final List<Leak> leaks = new ArrayList<>();
         Market market;
         Patrol patrol = new Patrol();
+        /** 같은 시장에서 매매하는 부장님. 판이 시작될 때 만든다. */
+        Boss boss;
+        /** 이번 판에 Claude에게 부장님 판단을 물은 횟수(상한이 있다). */
+        int bossCalls;
         final List<Settlement.TradeRecord> trades = new ArrayList<>();
         List<Settlement.Standing> standings;
         List<Settlement.Award> awards = List.of();
@@ -228,6 +234,8 @@ public class LobbySocket extends TextWebSocketHandler {
             orders.clear();
             market = freshMarket;
             patrol = new Patrol();
+            boss = null;
+            bossCalls = 0;
             trades.clear();
             standings = null;
             awards = List.of();
@@ -260,7 +268,8 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final Map<String, String> CALLED_NOTICE = Map.of(
             "market", "%s 님이 주식하다 부장님께 불려 갔어요.",
             "messenger", "%s 님이 메신저를 하다 부장님께 불려 갔어요.",
-            "idle", "%s 님이 일을 안 해서 부장님께 불려 갔어요.");
+            "idle", "%s 님이 일을 안 해서 부장님께 불려 갔어요.",
+            "mood", "%s 님이 기분 나쁜 부장님께 괜히 불려 갔어요.");
 
     private record Leak(String player, int newsNumber, String text) {}
 
@@ -581,6 +590,13 @@ public class LobbySocket extends TextWebSocketHandler {
 
     /** 방금 훈계로 불려 간 동료를 단체방에 사내 알림으로 알린다. 솔로 방에는 메신저가 없다. */
     private void announceMeetings(Lobby lobby) throws IOException {
+        // 기분이 좋아 봐준 사람에게만 알린다(누가 봐줬는지는 다른 사람에게 알리지 않는다).
+        for (var player : lobby.patrol.justForgiven) {
+            var session = lobby.clients.get(player);
+            if (session != null) send(session, Map.of("type", "notice",
+                    "message", "부장님이 기분이 좋아서 이번 한 번은 봐줬어요. 다음엔 없어요!"));
+        }
+        lobby.patrol.justForgiven.clear();
         if (lobby.patrol.justCalled.isEmpty()) return;
         var called = List.copyOf(lobby.patrol.justCalled);
         lobby.patrol.justCalled.clear();
@@ -977,7 +993,9 @@ public class LobbySocket extends TextWebSocketHandler {
         // 같은 크기로 계속 떠들면 MIC가 다시 오지 않으므로 매초 지금 크기로 다시 잰다.
         long nowMillis = System.nanoTime() / 1_000_000;
         lobby.micLevels.forEach((id, level) -> lobby.patrol.hearMic(id, level, nowMillis));
+        if (lobby.boss == null) lobby.boss = new Boss(tradeFeeBps, new SplittableRandom());
         if (lobby.tick % TICKS_PER_PATROL_BEAT == 0) {
+            lobby.patrol.mood = lobby.boss.mood(lobby.market);
             lobby.patrol.setAway(lobby.bossAway(), lobby.tick / TICKS_PER_PATROL_BEAT);
             lobby.patrol.advance(lobby.tick / TICKS_PER_PATROL_BEAT);
             // 훈계 시작·종료는 순찰 박자에 일어나므로 이때 업무 시간 기록에 화면 상태를 알린다.
@@ -992,7 +1010,75 @@ public class LobbySocket extends TextWebSocketHandler {
             });
         }
         lobby.market.advance(lobby.tick);
+        bossTrades(lobby);
     }
+
+    /**
+     * 부장님 매매: 새 뉴스·찌라시를 읽고 판단을 몇 초 뒤로 걸어 두고, 때가 된 판단과 공포 손절을 체결한다.
+     * 부장님 매매도 플레이어 매매처럼 가격에 흔적을 남기고 퇴근 결과의 매매 기록에 "부장님"으로 오른다.
+     */
+    private void bossTrades(Lobby lobby) {
+        var boss = lobby.boss;
+        var history = lobby.market.history();
+        var mood = boss.mood(lobby.market);
+        while (boss.seenNews < history.size()) {
+            var item = history.get(boss.seenNews++);
+            var rule = boss.decide(item, lobby.market.movesOf(item.number()), mood);
+            // 플레이어가 뿌린 익명 찌라시(종목 정보 없음)는 Claude가 읽고 판단할 수 있다. 규칙으로는 무시한다.
+            if (bossBrain.enabled() && lobby.bossCalls < bossBrain.maxCallsPerRound()) {
+                lobby.bossCalls++;
+                bossBrain.decide(situation(lobby, item, mood), lobby.market.pools().keySet(), rule)
+                        .thenAccept(boss.incoming::addAll);
+            } else {
+                for (var decision : rule) boss.schedule(decision, lobby.tick);
+            }
+        }
+        // Claude 답(또는 늦어서 대신한 규칙 판단)은 도착한 뒤 곧 실행한다(이미 몇 초 읽은 셈이다).
+        for (Boss.Decision decision; (decision = boss.incoming.poll()) != null; ) boss.scheduleSoon(decision, lobby.tick);
+        var decisions = new ArrayList<>(boss.due(lobby.tick));
+        if (lobby.tick % 10 == 0) decisions.addAll(boss.panics(lobby.market));
+        for (var decision : decisions) {
+            if (decision.symbol() == null) {   // 주문 없이 혼잣말만
+                boss.say(decision.line(), lobby.tick);
+                continue;
+            }
+            var trade = boss.execute(decision, lobby.market);
+            if (trade == null) continue;
+            lobby.market.recordTrade(trade.symbol(), trade.spotBeforeWon(), trade.quantity());
+            lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS, Boss.LABEL, trade.symbol(),
+                    trade.buy() ? "매수" : "매도", trade.quantity(), trade.amountWon()));
+            boss.say(decision.line() != null ? decision.line() : boss.defaultLine(trade, boss.mood(lobby.market)), lobby.tick);
+        }
+    }
+
+    /** Claude에게 줄 상황: 뉴스, 부장님 지갑, 이번 판 종목과 가격. */
+    private static BossBrain.Situation situation(Lobby lobby, Market.NewsItem item, Boss.Mood mood) {
+        var market = lobby.market;
+        var names = new LinkedHashMap<String, String>();
+        var prices = new LinkedHashMap<String, Long>();
+        for (var stock : market.catalog().stocks()) {
+            names.put(stock.id(), stock.name());
+            prices.put(stock.id(), market.spotPrice(stock.id()));
+        }
+        var wallet = lobby.boss.wallet;
+        return new BossBrain.Situation(item.headline(), item.kind().equals("rumor"), lobby.boss.profitPercent(market),
+                mood.id(), wallet.balance().cashWon(), new LinkedHashMap<>(wallet.holdings()), names, prices);
+    }
+
+    /** 화면에 보내는 부장님 상태: 기분, 자리에 앉아 있는지, 최근 혼잣말(몇 초 동안만). */
+    private static Map<String, Object> bossView(Lobby lobby) {
+        var view = new LinkedHashMap<String, Object>();
+        var boss = lobby.boss;
+        view.put("mood", boss == null ? "normal" : boss.mood(lobby.market).id());
+        view.put("atDesk", lobby.patrol.atDesk && !lobby.bossAway());
+        boolean speaking = boss != null && boss.line != null && lobby.tick - boss.lineTick <= BOSS_LINE_TICKS;
+        view.put("line", speaking ? boss.line : null);
+        view.put("lineSecond", speaking ? boss.lineTick * Market.TICK_SECONDS : -1);
+        return view;
+    }
+
+    /** 부장님 혼잣말을 화면에 보여 주는 시간(틱). */
+    private static final long BOSS_LINE_TICKS = 6;
 
     /** 퇴근: 이후 모든 조작을 막고, 순위와 이번 판의 매매 기록을 모두에게 공개한다. */
     private void finish(Lobby lobby) throws IOException {
@@ -1087,6 +1173,7 @@ public class LobbySocket extends TextWebSocketHandler {
                     Map.entry("colleagues", colleagues.entrySet().stream()
                             .filter(e -> !e.getKey().equals(entry.getKey())).map(Map.Entry::getValue).toList()),
                     Map.entry("micLevels", micLevels),
+                    Map.entry("boss", bossView(lobby)),
                     Map.entry("lunchStartsInSeconds", (lobby.lunchStartTick - lobby.tick) * Market.TICK_SECONDS),
                     Map.entry("lunchEndsInSeconds", (lobby.lunchEndTick - lobby.tick) * Market.TICK_SECONDS),
                     Map.entry("remainingSeconds",

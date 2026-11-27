@@ -18,6 +18,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.springframework.security:spring-security-crypto'
+    // 부장님 매매 판단·대사(선택). ANTHROPIC_API_KEY가 있을 때만 쓴다.
+    implementation 'com.anthropic:anthropic-java:3.3.0'
     runtimeOnly 'org.postgresql:postgresql'
 
     // Boot 3.2가 정한 Testcontainers 1.19는 Docker 29(API 1.40 미만 거절)와 통신하지 못해 올린다.

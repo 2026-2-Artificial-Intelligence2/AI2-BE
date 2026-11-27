@@ -13,6 +13,9 @@ import java.util.concurrent.ThreadLocalRandom;
  * 오래 지나면 오르고, 업무를 끝내면 내려간다. 게이지가 높을수록 순찰 대상으로 뽑히기 쉽고, 100이면
  * 부장님이 곧장 온다. 100인 채로 점검받으면 업무 창을 띄워 놔도 훈계를 받는다.
  *
+ * 부장님 자리: 사무실 동쪽에 책상이 있다. 순찰과 순찰 사이에는 자리에 앉아 매매하고(발소리 없음),
+ * 점검이 끝나면 자리로 걸어 돌아간다. 기분(부장님 손익)에 따라 순찰 간격·판정이 달라진다({@link Boss.Mood}).
+ *
  * 소리: 마이크 소리가 50 이상(소리 막대 절반)으로 1초 이어지면 부장님이 그 사람에게 걸어간다. 떠든 것만으로 훈계하지는
  * 않고, 도착해서 평소처럼 화면을 본다(주식·메신저 창이면 적발).
  */
@@ -60,6 +63,9 @@ final class Patrol {
             new Point(3, 0), new Point(3, 2), new Point(1, 2), new Point(-1, 2),
             new Point(-3, 2), new Point(-3, 0));
     private static final List<Integer> STOPS = List.of(1, 2, 7, 6);
+    /** 부장님 책상(의자) 자리와, 통로에서 책상으로 드나드는 지점(동쪽 가운데). */
+    static final Point DESK = new Point(6.3, 0);
+    private static final int DESK_ENTRY = 4;
 
     static final class Seat {
         final int stop;
@@ -95,14 +101,28 @@ final class Patrol {
     private UUID loudCall;
     /** 방금 훈계로 불려 간 사람들. 방이 메신저에 알리고 비운다. */
     final List<UUID> justCalled = new ArrayList<>();
-    /** 순찰과 순찰 사이 쉬는 박자(2초 단위). 10~19박자 = 20~38초. 의심 100의 호출은 이 간격을 기다리지 않는다. */
-    static final int PATROL_GAP_MIN_BEATS = 10, PATROL_GAP_MAX_BEATS = 20;
+    /** 방금 기분이 좋아 한 번 봐준 사람들. 방이 그 사람에게 알리고 비운다. */
+    final List<UUID> justForgiven = new ArrayList<>();
+    /** 이번 판에 한 번 봐준 사람(기분이 아주 좋을 때 한 사람당 한 번). */
+    private final java.util.Set<UUID> forgiven = new java.util.HashSet<>();
+    /**
+     * 순찰과 순찰 사이 쉬는 박자(2초 단위). 15~24박자 = 30~48초(부장님도 자리에서 매매하므로 예전 20~38초보다 길다).
+     * 기분에 따라 곱한다. 의심 100·떠든 사람 호출은 이 간격을 기다리지 않는다.
+     */
+    static final int PATROL_GAP_MIN_BEATS = 15, PATROL_GAP_MAX_BEATS = 25;
     private long nextWalk = PATROL_GAP_MIN_BEATS;
-    private int waypoint;
-    private int previous;
+    private int waypoint = DESK_ENTRY;
     private int destination;
     private int direction;
+    /** 이번 박자 발걸음의 시작·끝 지점. */
+    private Point from = DESK, to = DESK;
     boolean walking;
+    /** 자리에 앉아 있는가(순찰 사이, 점심 뒤 복귀). */
+    boolean atDesk = true;
+    /** 점검을 마치고 자리로 돌아가는 중인가. */
+    private boolean returning;
+    /** 부장님 기분. 방이 매 박자 부장님 손익으로 정해 준다. */
+    Boss.Mood mood = Boss.Mood.NORMAL;
     /** 점심시간 등으로 부장님이 자리를 비웠는가. 비운 동안은 순찰·점검이 없고 의심도 오르지 않는다. */
     private boolean away;
     /** 마지막으로 진행한 순찰 박자. 클라이언트가 같은 박자의 발소리를 두 번 재생하지 않게 한다. */
@@ -134,8 +154,13 @@ final class Patrol {
             target = null;
             loudCall = null;
             walking = false;
+            returning = false;
         } else {
+            // 점심에서 돌아오면 자리에 앉아 있다가 곧 순찰을 나선다.
             for (var s : seats.values()) s.idleSeconds = 0;
+            atDesk = true;
+            waypoint = DESK_ENTRY;
+            from = to = DESK;
             nextWalk = tick + ThreadLocalRandom.current().nextInt(1, 3);
         }
     }
@@ -147,18 +172,25 @@ final class Patrol {
             if (!away && s.present && s.view != View.MEETING) raiseSuspicion(s, tick);
         }
         walking = false;
+        from = to;
         if (away) return;
         if (target == null && !seats.isEmpty()) {
             var summoned = summoned();
             if (summoned == null && callable(loudCall)) summoned = loudCall;
             loudCall = null;
-            if (summoned != null || tick >= nextWalk) {
+            if (summoned != null || (!returning && tick >= nextWalk)) {
                 target = summoned != null ? summoned : weightedPick();
                 destination = seats.get(target).stop;
-                direction = ThreadLocalRandom.current().nextBoolean() ? 1 : -1;
-                if (Math.floorMod(waypoint + direction, AISLE.size()) == destination) {
-                    direction = -direction;
+                returning = false;
+                if (atDesk) {
+                    // 자리에서 일어나 통로로 나온다.
+                    atDesk = false;
+                    step(DESK, AISLE.get(DESK_ENTRY));
+                    waypoint = DESK_ENTRY;
+                    chooseDirection();
+                    return;
                 }
+                chooseDirection();
                 // Starting at the same stop means walking one full lap before inspecting.
             }
         } else if (target != null && waypoint == destination) {
@@ -166,10 +198,45 @@ final class Patrol {
             return;
         }
         if (target != null) {
-            previous = waypoint;
-            waypoint = Math.floorMod(waypoint + direction, AISLE.size());
-            walking = true;
+            move();
+        } else if (returning) {
+            if (waypoint == DESK_ENTRY) {
+                step(AISLE.get(DESK_ENTRY), DESK);
+                returning = false;
+                atDesk = true;
+                nextWalk = tick + gapBeats();
+            } else {
+                move();
+            }
         }
+    }
+
+    private void chooseDirection() {
+        direction = ThreadLocalRandom.current().nextBoolean() ? 1 : -1;
+        if (Math.floorMod(waypoint + direction, AISLE.size()) == destination) direction = -direction;
+    }
+
+    /** 통로를 한 칸 걷는다. 자리로 돌아갈 때는 가까운 쪽으로 돈다. */
+    private void move() {
+        if (returning) {
+            int forward = Math.floorMod(DESK_ENTRY - waypoint, AISLE.size());
+            direction = forward <= AISLE.size() / 2 ? 1 : -1;
+        }
+        int next = Math.floorMod(waypoint + direction, AISLE.size());
+        step(AISLE.get(waypoint), AISLE.get(next));
+        waypoint = next;
+    }
+
+    private void step(Point start, Point end) {
+        from = start;
+        to = end;
+        walking = true;
+    }
+
+    /** 순찰 사이 쉬는 박자. 기분이 나쁠수록 짧고(자주 돈다), 좋을수록 길다. */
+    private int gapBeats() {
+        int base = ThreadLocalRandom.current().nextInt(PATROL_GAP_MIN_BEATS, PATROL_GAP_MAX_BEATS);
+        return Math.max(3, (int) Math.round(base * mood.gapFactor));
     }
 
     private void raiseSuspicion(Seat s, long tick) {
@@ -244,18 +311,30 @@ final class Patrol {
         return seats.lastEntry().getKey();
     }
 
+    /**
+     * 화면을 본다. 주식·메신저 창이면 훈계, 업무를 오래 놓았으면(기분이 나쁠수록 기준이 낮다) 업무 방치 훈계.
+     * 기분이 아주 좋으면 걸려도 한 사람당 한 번 봐주고, 아주 나쁘면 잘못이 없어도 데려갈 때가 있다.
+     */
     private void inspect(long tick) {
         Seat seat = seats.get(target);
         if (seat != null && seat.view.slacking()) {
-            meeting(seat, tick, MARKET_MEETING_BEATS, seat.view == View.MARKET ? "market" : "messenger");
+            if (mood.forgivesOnce && forgiven.add(target)) {
+                justForgiven.add(target);
+            } else {
+                meeting(seat, tick, MARKET_MEETING_BEATS, seat.view == View.MARKET ? "market" : "messenger");
+                justCalled.add(target);
+            }
+        } else if (seat != null && seat.present && seat.view == View.WORK
+                && seat.suspicion >= mood.idleThreshold) {
+            meeting(seat, tick, IDLE_MEETING_BEATS, "idle");
             justCalled.add(target);
         } else if (seat != null && seat.present && seat.view == View.WORK
-                && seat.suspicion >= SUSPICION_MAX) {
-            meeting(seat, tick, IDLE_MEETING_BEATS, "idle");
+                && ThreadLocalRandom.current().nextDouble() < mood.innocentCallChance) {
+            meeting(seat, tick, IDLE_MEETING_BEATS, "mood");
             justCalled.add(target);
         }
         target = null;
-        nextWalk = tick + ThreadLocalRandom.current().nextInt(PATROL_GAP_MIN_BEATS, PATROL_GAP_MAX_BEATS);
+        returning = true;   // 다음 박자부터 자리로 걸어 돌아간다.
     }
 
     private static void meeting(Seat seat, long tick, int beats, String reason) {
@@ -268,6 +347,6 @@ final class Patrol {
     }
 
     Step step(Seat seat) {
-        return new Step(AISLE.get(previous), AISLE.get(waypoint), seat.listener);
+        return new Step(from, to, seat.listener);
     }
 }
