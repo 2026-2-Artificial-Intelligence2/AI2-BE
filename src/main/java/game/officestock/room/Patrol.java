@@ -11,6 +11,9 @@ import java.util.concurrent.ThreadLocalRandom;
  * 의심 게이지(0~100): 주식 창을 보는 것 자체는 게임의 기본이라 벌하지 않는다. 마지막 업무 제출 뒤
  * 오래 지나면 오르고, 업무를 끝내면 내려간다. 게이지가 높을수록 순찰 대상으로 뽑히기 쉽고, 100이면
  * 부장님이 곧장 온다. 100인 채로 점검받으면 업무 창을 띄워 놔도 훈계를 받는다.
+ *
+ * 소리: 마이크 소리가 80 이상으로 2초 이어지면 부장님이 그 사람에게 걸어간다. 떠든 것만으로 훈계하지는
+ * 않고, 도착해서 평소처럼 화면을 본다(주식·메신저 창이면 적발).
  */
 final class Patrol {
     enum View {
@@ -43,6 +46,12 @@ final class Patrol {
     static final double SUSPICION_WEIGHT_DIVISOR = 20;
     static final int MARKET_MEETING_BEATS = 5;   // 주식 창 적발: 약 10초
     static final int IDLE_MEETING_BEATS = 3;     // 업무 방치 훈계: 약 6초
+    /** 이 크기(0~100) 이상이면 크게 떠드는 것이다. */
+    static final int LOUD_LEVEL = 80;
+    /** 크게 떠드는 게 이만큼 이어지면 부장님이 듣고 온다. */
+    static final long LOUD_MILLIS = 2_000;
+    /** 말 사이 짧게 조용해지는 건 이어진 것으로 본다. 이보다 길게 조용하면 처음부터 다시 잰다. */
+    static final long LOUD_GAP_MILLIS = 500;
 
     // Perimeter aisle, in metres. Seat rows face each other across the desks.
     private static final List<Point> AISLE = List.of(
@@ -66,6 +75,10 @@ final class Patrol {
         boolean present = true;
         /** 헛기침이 난 박자. 그 박자의 시세 메시지에 한 번 실어 보낸다. */
         long coughBeat = -1;
+        /** 크게 떠들기 시작한 시각(ms). -1이면 조용하다. */
+        long loudSinceMillis = -1;
+        /** 크게 떠들다가 조용해진 시각(ms). -1이면 아직 떠드는 중이거나 조용하다. */
+        long quietSinceMillis = -1;
 
         Seat(int stop) {
             this.stop = stop;
@@ -77,6 +90,8 @@ final class Patrol {
 
     final LinkedHashMap<UUID, Seat> seats = new LinkedHashMap<>();
     private UUID target;
+    /** 크게 떠들어서 부장님이 들은 사람. 지금 다른 사람에게 가는 중이면 그 다음에 간다. */
+    private UUID loudCall;
     /** 순찰과 순찰 사이 쉬는 박자(2초 단위). 10~19박자 = 20~38초. 의심 100의 호출은 이 간격을 기다리지 않는다. */
     static final int PATROL_GAP_MIN_BEATS = 10, PATROL_GAP_MAX_BEATS = 20;
     private long nextWalk = PATROL_GAP_MIN_BEATS;
@@ -114,6 +129,7 @@ final class Patrol {
         away = nowAway;
         if (away) {
             target = null;
+            loudCall = null;
             walking = false;
         } else {
             for (var s : seats.values()) s.idleSeconds = 0;
@@ -131,6 +147,8 @@ final class Patrol {
         if (away) return;
         if (target == null && !seats.isEmpty()) {
             var summoned = summoned();
+            if (summoned == null && callable(loudCall)) summoned = loudCall;
+            loudCall = null;
             if (summoned != null || tick >= nextWalk) {
                 target = summoned != null ? summoned : weightedPick();
                 destination = seats.get(target).stop;
@@ -174,6 +192,41 @@ final class Patrol {
             }
         }
         return best;
+    }
+
+    /**
+     * 마이크 소리 크기를 듣는다. 값이 바뀔 때와 매초(같은 크기가 이어질 때) 부른다.
+     * @param level 0~100 @param nowMillis 지금 시각(ms)
+     */
+    void hearMic(UUID player, int level, long nowMillis) {
+        var seat = seats.get(player);
+        if (seat == null) return;
+        if (level >= LOUD_LEVEL) {
+            seat.quietSinceMillis = -1;
+            if (seat.loudSinceMillis < 0) seat.loudSinceMillis = nowMillis;
+            if (nowMillis - seat.loudSinceMillis >= LOUD_MILLIS) {
+                // 한 번 들으면 다시 2초를 잰다(계속 떠들면 다음 순찰에도 또 온다).
+                seat.loudSinceMillis = -1;
+                if (!away && callable(player) && !player.equals(target) && loudCall == null) loudCall = player;
+            }
+        } else if (seat.loudSinceMillis >= 0) {
+            if (seat.quietSinceMillis < 0) seat.quietSinceMillis = nowMillis;
+            else if (nowMillis - seat.quietSinceMillis > LOUD_GAP_MILLIS) {
+                seat.loudSinceMillis = -1;
+                seat.quietSinceMillis = -1;
+            }
+        }
+    }
+
+    /** 부장님이 불려 갈 수 있는 사람(연결돼 있고 훈계 중이 아님). */
+    private boolean callable(UUID player) {
+        var seat = player == null ? null : seats.get(player);
+        return seat != null && seat.present && seat.view != View.MEETING;
+    }
+
+    /** 지금 가고 있는 사람. 없으면 null. */
+    UUID target() {
+        return target;
     }
 
     /** 의심이 높을수록 뽑히기 쉽다. */
