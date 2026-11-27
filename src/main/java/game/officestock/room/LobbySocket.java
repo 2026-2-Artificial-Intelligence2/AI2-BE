@@ -173,8 +173,10 @@ public class LobbySocket extends TextWebSocketHandler {
         final Map<UUID, long[]> voiceSignalWindow = new HashMap<>();
         /** 사람별로 소리 크기를 마지막으로 방에 알린 시각(나노초). 너무 잦은 알림을 줄인다. */
         final Map<UUID, Long> micSentAt = new HashMap<>();
-        /** 사내 메신저 기록. 방이 유지되는 동안 판이 바뀌어도 남는다(최근 MAX_CHAT_HISTORY개). */
+        /** 사내 메신저 기록(최근 MAX_CHAT_HISTORY개). 같은 방에서 다시 해도 남고, 메시지마다 판 번호가 붙는다. */
         final List<ChatMessage> chats = new ArrayList<>();
+        /** 메시지 번호. 방이 유지되는 동안 계속 늘어난다(화면이 번호로 안 읽은 메시지를 센다). */
+        int chatSeq;
         final Map<UUID, Long> lastChatNanos = new HashMap<>();
 
         // 아래는 한 판의 상태. 같은 방에서 다시 하면 nextRound()로 새로 만든다.
@@ -247,13 +249,16 @@ public class LobbySocket extends TextWebSocketHandler {
     private record Membership(Lobby lobby, UUID player) {}
 
     /** @param to 받는 사람 이름, 단체방이면 null */
-    /** @param system 서버가 보낸 사내 알림(동료가 면담에 불려 감 등). from은 {@link #SYSTEM_SENDER}다. */
-    private record ChatMessage(int id, long second, String from, String to, String text, boolean system) {}
+    /**
+     * @param round 몇 번째 판의 메시지인가(같은 방에서 다시 하면 늘어난다). 화면이 판 사이에 구분선을 긋는다.
+     * @param system 서버가 보낸 사내 알림(동료가 면담에 불려 감 등). from은 {@link #SYSTEM_SENDER}다.
+     */
+    private record ChatMessage(int id, int round, long second, String from, String to, String text, boolean system) {}
 
     /** 사내 알림을 보내는 이름. 이름은 2자 이상 영문·한글·숫자·_·-라 공백이 든 이 이름과 겹치지 않는다. */
     static final String SYSTEM_SENDER = "사내 알림";
     private static final Map<String, String> CALLED_NOTICE = Map.of(
-            "market", "%s 님이 주식 창을 보다 부장님께 불려 갔어요.",
+            "market", "%s 님이 주식하다 부장님께 불려 갔어요.",
             "messenger", "%s 님이 메신저를 하다 부장님께 불려 갔어요.",
             "idle", "%s 님이 일을 안 해서 부장님께 불려 갔어요.");
 
@@ -555,7 +560,7 @@ public class LobbySocket extends TextWebSocketHandler {
             if (recipient.equals(player)) throw new IllegalArgumentException("자기 자신에게는 보낼 수 없습니다.");
         }
         lobby.lastChatNanos.put(player, now);
-        var message = new ChatMessage(lobby.chats.isEmpty() ? 1 : lobby.chats.getLast().id() + 1,
+        var message = new ChatMessage(++lobby.chatSeq, lobby.round,
                 playing ? lobby.tick * Market.TICK_SECONDS : -1, from, recipient == null ? null : target, text, false);
         lobby.chats.add(message);
         if (lobby.chats.size() > MAX_CHAT_HISTORY) lobby.chats.removeFirst();
@@ -575,7 +580,7 @@ public class LobbySocket extends TextWebSocketHandler {
         for (var player : called) {
             var reason = lobby.patrol.seats.get(player).meetingReason;
             var text = CALLED_NOTICE.getOrDefault(reason, "%s 님이 부장님께 불려 갔어요.").formatted(lobby.labels.get(player));
-            var message = new ChatMessage(lobby.chats.isEmpty() ? 1 : lobby.chats.getLast().id() + 1,
+            var message = new ChatMessage(++lobby.chatSeq, lobby.round,
                     lobby.tick * Market.TICK_SECONDS, SYSTEM_SENDER, null, text, true);
             lobby.chats.add(message);
             if (lobby.chats.size() > MAX_CHAT_HISTORY) lobby.chats.removeFirst();

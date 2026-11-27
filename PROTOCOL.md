@@ -326,13 +326,13 @@
 ### `chat`, `chatHistory`, `leakSent` — 메신저
 
 ```json
-{"type":"chat","message":{"id":3,"second":15,"from":"P2","to":null,"text":"달나라 지금 사야 함","system":false}}
-{"type":"chat","message":{"id":4,"second":21,"from":"사내 알림","to":null,"text":"P2 님이 주식 창을 보다 부장님께 불려 갔어요.","system":true}}
+{"type":"chat","message":{"id":3,"round":1,"second":15,"from":"P2","to":null,"text":"달나라 지금 사야 함","system":false}}
+{"type":"chat","message":{"id":4,"round":1,"second":21,"from":"사내 알림","to":null,"text":"P2 님이 주식하다 부장님께 불려 갔어요.","system":true}}
 {"type":"chatHistory","messages":[{"id":1,"second":-1,"from":"P2","to":null,"text":"안녕하세요"}, …]}
 {"type":"leakSent","message":"익명 찌라시를 뿌렸습니다. 누가 뿌렸는지는 퇴근 뒤 공개됩니다."}
 ```
 
-`to`가 null이면 단체방, 이름이면 귓속말이다. `second`가 −1이면 게임 밖(대기실·퇴근 뒤) 메시지다. `chatHistory`는 입장과 재접속 때 오며, 내가 볼 수 있는 것(단체방과 내 귓속말, 최근 300개)만 담긴다. 익명 찌라시는 다른 사람에게 `market`의 찌라시로 보인다.
+`to`가 null이면 단체방, 이름이면 귓속말이다. `second`가 −1이면 게임 밖(대기실·퇴근 뒤) 메시지다. `chatHistory`는 입장과 재접속 때 오며, 내가 볼 수 있는 것(단체방과 내 귓속말, 최근 300개)만 담긴다. 익명 찌라시는 다른 사람에게 `market`의 찌라시로 보인다. 메신저 기록은 방이 유지되는 동안 판이 바뀌어도 남는다. `round`는 몇 번째 판의 메시지인지(같은 방에서 다시 하면 1씩 늘어난다)라서, 화면은 `round`가 바뀌는 곳에 구분선을 긋는다.
 
 `system`이 true면 서버가 보낸 사내 알림이다(`from`은 "사내 알림"). 팀 방에서 누가 훈계로 불려 가면(주식 창·메신저 창 적발, 업무 방치) 그 순간 단체방에 이유와 함께 온다. 화면은 사람이 쓴 말과 다르게 보여 주면 된다.
 
