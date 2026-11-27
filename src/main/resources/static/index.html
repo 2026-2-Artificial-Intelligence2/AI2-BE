@@ -322,13 +322,19 @@
   for (const id of ['create', 'join', 'start', 'switchView']) {
     el(id).addEventListener('click', enableSound);
   }
+  // 한 박자(2초)에 네 걸음: 구간의 25·50·75·100% 지점. 박자 끝에 소리가 부장님이 선 자리에 닿고,
+  // 시세 메시지가 조금 일찍·늦게 와도 걸음 간격이 고르도록 앞 박자의 마지막 걸음 뒤에 이어 붙인다.
+  let lastStepAt = 0;
   function footsteps({from, to, listener}) {
     if (audio?.state !== 'running') return;
-    for (const delay of [0, 0.5, 1, 1.5]) {
-      const t = audio.currentTime + delay;
+    const now = audio.currentTime;
+    const start = lastStepAt > now && lastStepAt - now < 1 ? lastStepAt : now;
+    lastStepAt = start + 2;
+    for (let i = 1; i <= 4; i++) {
+      const t = start + i * 0.5;
       const sound = audio.createOscillator();
       const gain = audio.createGain();
-      const fraction = delay / 2;
+      const fraction = i / 4;
       const x = from.x + (to.x - from.x) * fraction - listener.position.x;
       const z = from.z + (to.z - from.z) * fraction - listener.position.z;
       // Web Audio listener faces -Z, with +X to its right.
