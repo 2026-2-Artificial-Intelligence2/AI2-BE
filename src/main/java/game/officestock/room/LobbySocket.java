@@ -55,6 +55,8 @@ public class LobbySocket extends TextWebSocketHandler {
     private static final int MAX_CHAT_HISTORY = 300;
     private static final int MAX_LEAK_LENGTH = 60;
     private static final int MAX_LEAK_BODY_LENGTH = 300;
+    /** 익명 찌라시: 한 사람이 한 판에 뿌릴 수 있는 횟수와, 다음 찌라시까지 기다릴 시간(초). */
+    static final int LEAKS_PER_ROUND = 3, LEAK_GAP_SECONDS = 45;
     /** 방장이 고를 수 있는 근무 시간 범위(분). 화면은 5·10·15·20분을 보여준다. */
     private static final int MIN_SESSION_MINUTES = 1;
     private static final int MAX_SESSION_MINUTES = 60;
@@ -519,6 +521,7 @@ public class LobbySocket extends TextWebSocketHandler {
         for (var entry : lobby.clients.entrySet()) {
             sendChart(entry.getValue(), lobby);
             send(entry.getValue(), Map.of("type", "catalog", "stocks", catalogMessage(lobby), "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon),
+                    "leak", Map.of("perRound", LEAKS_PER_ROUND, "gapSeconds", LEAK_GAP_SECONDS),
                     "feeBps", tradeFeeBps, "margin", Map.of("leverages", MARGIN_LEVERAGES,
                             "interestBpsPerMinute", marginInterestBpsPerMinute,
                             "maintenancePercent", marginMaintenancePercent)));
@@ -619,19 +622,32 @@ public class LobbySocket extends TextWebSocketHandler {
                 .filter(m -> m.to() == null || m.to().equals(me) || m.from().equals(me)).toList()));
     }
 
-    /** 익명 찌라시: 한 판에 한 번, 내가 쓴 문장을 진짜 찌라시처럼 모두의 화면에 뿌린다. 가격은 움직이지 않는다. */
+    /**
+     * 익명 찌라시: 한 사람이 한 판에 세 번까지(45초 간격), 내가 쓴 제목·본문을 진짜 찌라시처럼 모두의 화면에 뿌린다.
+     * 가격은 직접 움직이지 않지만, 부장님(LLM이 연결돼 있으면)과 동료가 믿고 사고팔 수 있다.
+     */
     private void leak(Lobby lobby, UUID player, String headline, String body) throws IOException {
         if (!lobby.started()) throw new IllegalStateException("게임 시작 후 뿌릴 수 있습니다.");
         if (lobby.patrol.seats.get(player).view != Patrol.View.MESSENGER)
             throw new IllegalStateException("메신저 창에서 뿌리세요.");
         var label = lobby.labels.get(player);
-        if (lobby.leaks.stream().anyMatch(l -> l.player().equals(label)))
-            throw new IllegalStateException("익명 찌라시는 한 판에 한 번만 뿌릴 수 있습니다.");
+        var mine = lobby.leaks.stream().filter(l -> l.player().equals(label)).toList();
+        if (mine.size() >= LEAKS_PER_ROUND)
+            throw new IllegalStateException("익명 찌라시는 한 판에 " + LEAKS_PER_ROUND + "번까지 뿌릴 수 있습니다.");
+        long now = lobby.tick * Market.TICK_SECONDS;
+        if (!mine.isEmpty()) {
+            long last = lobby.market.history().get(mine.getLast().newsNumber() - 1).second();
+            if (now - last < LEAK_GAP_SECONDS)
+                throw new IllegalStateException((LEAK_GAP_SECONDS - (now - last)) + "초 뒤에 다시 뿌릴 수 있습니다.");
+        }
         var item = lobby.market.addPlayerRumor(cleanText(headline, MAX_LEAK_LENGTH),
                 body == null ? null : cleanText(body, MAX_LEAK_BODY_LENGTH));
         lobby.leaks.add(new Leak(label, item.number(), item.headline()));
         log.info("방 {} {} 익명 찌라시: {}", lobby.logName(), label, item.headline());
-        send(lobby.clients.get(player), Map.of("type", "leakSent", "message", "익명 찌라시를 뿌렸습니다. 누가 뿌렸는지는 퇴근 뒤 공개됩니다."));
+        int remaining = LEAKS_PER_ROUND - mine.size() - 1;
+        send(lobby.clients.get(player), Map.of("type", "leakSent", "remaining", remaining, "gapSeconds", LEAK_GAP_SECONDS,
+                "message", "익명 찌라시를 뿌렸습니다. 누가 뿌렸는지는 퇴근 뒤 공개됩니다."
+                        + (remaining > 0 ? " 이번 판에 " + remaining + "번 더 뿌릴 수 있어요(" + LEAK_GAP_SECONDS + "초 뒤부터)." : " 이번 판에는 다 썼어요.")));
         broadcastMarket(lobby);
     }
 
@@ -1061,7 +1077,7 @@ public class LobbySocket extends TextWebSocketHandler {
             prices.put(stock.id(), market.spotPrice(stock.id()));
         }
         var wallet = lobby.boss.wallet;
-        return new BossBrain.Situation(item.headline(), item.kind().equals("rumor"), lobby.boss.profitPercent(market),
+        return new BossBrain.Situation(item.headline(), item.body(), item.kind().equals("rumor"), lobby.boss.profitPercent(market),
                 mood.id(), wallet.balance().cashWon(), new LinkedHashMap<>(wallet.holdings()), names, prices);
     }
 
@@ -1271,6 +1287,7 @@ public class LobbySocket extends TextWebSocketHandler {
             if (!lobby.started()) return;
             sendChart(session, lobby);
             send(session, Map.of("type", "catalog", "stocks", catalogMessage(lobby), "loan", Map.of("interestPercent", loanInterestPercent, "maxWon", loanMaxWon),
+                    "leak", Map.of("perRound", LEAKS_PER_ROUND, "gapSeconds", LEAK_GAP_SECONDS),
                     "feeBps", tradeFeeBps, "margin", Map.of("leverages", MARGIN_LEVERAGES,
                             "interestBpsPerMinute", marginInterestBpsPerMinute,
                             "maintenancePercent", marginMaintenancePercent)));
