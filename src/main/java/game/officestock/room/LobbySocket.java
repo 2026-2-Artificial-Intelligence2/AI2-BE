@@ -935,6 +935,9 @@ public class LobbySocket extends TextWebSocketHandler {
 
     private void advanceMarket(Lobby lobby) {
         lobby.tick++;
+        // 같은 크기로 계속 떠들면 MIC가 다시 오지 않으므로 매초 지금 크기로 다시 잰다.
+        long nowMillis = System.nanoTime() / 1_000_000;
+        lobby.micLevels.forEach((id, level) -> lobby.patrol.hearMic(id, level, nowMillis));
         if (lobby.tick % TICKS_PER_PATROL_BEAT == 0) {
             lobby.patrol.setAway(lobby.bossAway(), lobby.tick / TICKS_PER_PATROL_BEAT);
             lobby.patrol.advance(lobby.tick / TICKS_PER_PATROL_BEAT);
@@ -1448,6 +1451,7 @@ public class LobbySocket extends TextWebSocketHandler {
         }
         if (level < 0 || level > 100) throw new IllegalArgumentException("소리 크기는 0~100 사이의 정수여야 합니다.");
         Integer previous = lobby.micLevels.put(player, level);
+        if (!lobby.finished) lobby.patrol.hearMic(player, level, System.nanoTime() / 1_000_000);
         if (previous != null && previous == level) return;
         long now = System.nanoTime();
         Long sentAt = lobby.micSentAt.get(player);
