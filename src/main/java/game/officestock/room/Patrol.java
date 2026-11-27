@@ -1,5 +1,6 @@
 package game.officestock.room;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
@@ -92,6 +93,8 @@ final class Patrol {
     private UUID target;
     /** 크게 떠들어서 부장님이 들은 사람. 지금 다른 사람에게 가는 중이면 그 다음에 간다. */
     private UUID loudCall;
+    /** 방금 훈계로 불려 간 사람들. 방이 메신저에 알리고 비운다. */
+    final List<UUID> justCalled = new ArrayList<>();
     /** 순찰과 순찰 사이 쉬는 박자(2초 단위). 10~19박자 = 20~38초. 의심 100의 호출은 이 간격을 기다리지 않는다. */
     static final int PATROL_GAP_MIN_BEATS = 10, PATROL_GAP_MAX_BEATS = 20;
     private long nextWalk = PATROL_GAP_MIN_BEATS;
@@ -245,9 +248,11 @@ final class Patrol {
         Seat seat = seats.get(target);
         if (seat != null && seat.view.slacking()) {
             meeting(seat, tick, MARKET_MEETING_BEATS, seat.view == View.MARKET ? "market" : "messenger");
+            justCalled.add(target);
         } else if (seat != null && seat.present && seat.view == View.WORK
                 && seat.suspicion >= SUSPICION_MAX) {
             meeting(seat, tick, IDLE_MEETING_BEATS, "idle");
+            justCalled.add(target);
         }
         target = null;
         nextWalk = tick + ThreadLocalRandom.current().nextInt(PATROL_GAP_MIN_BEATS, PATROL_GAP_MAX_BEATS);

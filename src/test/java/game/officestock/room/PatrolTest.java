@@ -86,6 +86,24 @@ class PatrolTest {
     }
 
     @Test
+    void 훈계로_불려_가면_방금_불려_간_사람에_남는다() {
+        var slacker = UUID.randomUUID();
+        var patrol = new Patrol();
+        patrol.start(List.of(slacker));
+        var seat = patrol.seats.get(slacker);
+        seat.view = Patrol.View.MARKET;
+        seat.suspicion = Patrol.SUSPICION_MAX;   // 곧장 온다
+        for (int beat = 1; beat <= 20 && seat.view != Patrol.View.MEETING; beat++) {
+            seat.suspicion = Patrol.SUSPICION_MAX;
+            seat.view = Patrol.View.MARKET;
+            patrol.advance(beat);
+        }
+        assertThat(seat.view).isEqualTo(Patrol.View.MEETING);
+        assertThat(seat.meetingReason).isEqualTo("market");
+        assertThat(patrol.justCalled).containsExactly(slacker);
+    }
+
+    @Test
     void 부장님이_자리를_비웠으면_소리를_듣지_못한다() {
         var player = UUID.randomUUID();
         var patrol = new Patrol();
