@@ -990,7 +990,7 @@ public class LobbySocket extends TextWebSocketHandler {
         boolean recorded = lobby.profileIds.containsKey(player);
         send(session, Map.of("type", "result", "you", lobby.labels.get(player),
                 "standings", lobby.standings, "trades", lobby.trades,
-                "news", lobby.market.history(), "leaks", lobby.leaks,
+                "news", lobby.market.history(), "leaks", lobby.leaks, "startingCashWon", startingCashWon,
                 "recorded", recorded, "recordNotice", recorded
                         ? (lobby.solo ? "기록이 저장되고 명예의 전당에 반영됐습니다." : "기록이 저장됐습니다.")
                         : GUEST_NOTICE));
