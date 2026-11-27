@@ -52,35 +52,35 @@ class PatrolTest {
     }
 
     @Test
-    void 크게_2초_떠들면_부장님이_그_사람에게_간다() {
+    void 소리_막대_절반_이상으로_1초_떠들면_부장님이_그_사람에게_간다() {
         var quiet = UUID.randomUUID();
         var loud = UUID.randomUUID();
         var patrol = new Patrol();
         patrol.start(List.of(quiet, loud));
-        patrol.hearMic(loud, 85, 0);
-        patrol.hearMic(loud, 60, 1_000);      // 말 사이 0.4초 조용함은 이어진 것으로 본다
-        patrol.hearMic(loud, 90, 1_400);
-        patrol.hearMic(loud, 90, 1_999);
+        patrol.hearMic(loud, 55, 0);
+        patrol.hearMic(loud, 30, 500);        // 말 사이 0.4초 조용함은 이어진 것으로 본다
+        patrol.hearMic(loud, 60, 900);
+        patrol.hearMic(loud, 60, 999);
         patrol.advance(1);
-        assertThat(patrol.target()).isNull();  // 아직 2초가 안 됐고 순찰 간격 전이다
-        patrol.hearMic(loud, 90, 2_000);
+        assertThat(patrol.target()).isNull();  // 아직 1초가 안 됐고 순찰 간격 전이다
+        patrol.hearMic(loud, 50, 1_000);
         patrol.advance(2);
         assertThat(patrol.target()).isEqualTo(loud);
         assertThat(patrol.seats.get(loud).view).isEqualTo(Patrol.View.WORK);   // 떠든 것만으로 훈계하지 않는다
     }
 
     @Test
-    void 조용한_틈이_길거나_80보다_작으면_부르지_않는다() {
+    void 조용한_틈이_길거나_50보다_작으면_부르지_않는다() {
         var player = UUID.randomUUID();
         var patrol = new Patrol();
         patrol.start(List.of(player));
-        patrol.hearMic(player, 79, 0);
-        patrol.hearMic(player, 79, 5_000);
-        patrol.hearMic(player, 85, 6_000);
-        patrol.hearMic(player, 30, 7_000);
-        patrol.hearMic(player, 30, 7_600);    // 0.6초 조용함: 처음부터 다시 잰다
-        patrol.hearMic(player, 85, 7_700);
-        patrol.hearMic(player, 85, 9_000);
+        patrol.hearMic(player, 49, 0);
+        patrol.hearMic(player, 49, 5_000);
+        patrol.hearMic(player, 60, 6_000);
+        patrol.hearMic(player, 30, 6_500);
+        patrol.hearMic(player, 30, 7_100);    // 0.6초 조용함: 처음부터 다시 잰다
+        patrol.hearMic(player, 60, 7_200);
+        patrol.hearMic(player, 60, 8_100);
         patrol.advance(1);
         assertThat(patrol.target()).isNull();
     }

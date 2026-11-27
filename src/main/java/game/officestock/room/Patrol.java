@@ -12,7 +12,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * 오래 지나면 오르고, 업무를 끝내면 내려간다. 게이지가 높을수록 순찰 대상으로 뽑히기 쉽고, 100이면
  * 부장님이 곧장 온다. 100인 채로 점검받으면 업무 창을 띄워 놔도 훈계를 받는다.
  *
- * 소리: 마이크 소리가 80 이상으로 2초 이어지면 부장님이 그 사람에게 걸어간다. 떠든 것만으로 훈계하지는
+ * 소리: 마이크 소리가 50 이상(소리 막대 절반)으로 1초 이어지면 부장님이 그 사람에게 걸어간다. 떠든 것만으로 훈계하지는
  * 않고, 도착해서 평소처럼 화면을 본다(주식·메신저 창이면 적발).
  */
 final class Patrol {
@@ -47,9 +47,9 @@ final class Patrol {
     static final int MARKET_MEETING_BEATS = 5;   // 주식 창 적발: 약 10초
     static final int IDLE_MEETING_BEATS = 3;     // 업무 방치 훈계: 약 6초
     /** 이 크기(0~100) 이상이면 크게 떠드는 것이다. */
-    static final int LOUD_LEVEL = 80;
+    static final int LOUD_LEVEL = 50;
     /** 크게 떠드는 게 이만큼 이어지면 부장님이 듣고 온다. */
-    static final long LOUD_MILLIS = 2_000;
+    static final long LOUD_MILLIS = 1_000;
     /** 말 사이 짧게 조용해지는 건 이어진 것으로 본다. 이보다 길게 조용하면 처음부터 다시 잰다. */
     static final long LOUD_GAP_MILLIS = 500;
 
@@ -205,7 +205,7 @@ final class Patrol {
             seat.quietSinceMillis = -1;
             if (seat.loudSinceMillis < 0) seat.loudSinceMillis = nowMillis;
             if (nowMillis - seat.loudSinceMillis >= LOUD_MILLIS) {
-                // 한 번 들으면 다시 2초를 잰다(계속 떠들면 다음 순찰에도 또 온다).
+                // 한 번 들으면 다시 1초를 잰다(계속 떠들면 다음 순찰에도 또 온다).
                 seat.loudSinceMillis = -1;
                 if (!away && callable(player) && !player.equals(target) && loudCall == null) loudCall = player;
             }
