@@ -57,4 +57,35 @@ class SettlementTest {
         assertThat(last.player()).isEqualTo("빚쟁이");
         assertThat(last.bankrupt()).isTrue();
     }
+
+    @Test
+    void 직원상은_최다_훈계_최대_손실_업무왕이고_동점이면_함께_받는다() {
+        var market = market();
+        var winner = new WorkDesk(1_000_000, 35_000, 20, 0);
+        var loser = new WorkDesk(1_000_000, 35_000, 20, 0);
+        loser.wallet().takeLoan(100_000, 500_000);
+        var worker = new WorkDesk(1_000_000, 35_000, 20, 0);
+        worker.wallet().rewardCompletedTask(1, 35_000);
+        worker.wallet().rewardCompletedTask(2, 35_000);
+        var standings = Settlement.standings(new LinkedHashMap<>(Map.of("가", winner, "나", loser, "다", worker)), market);
+
+        var awards = Settlement.awards(standings, Map.of("가", 2, "나", 2, "다", 0), 1_000_000);
+
+        assertThat(awards).extracting(Settlement.Award::award)
+                .containsExactly("scolded", "biggestLoss", "hardestWorker");
+        assertThat(awards.get(0).players()).containsExactlyInAnyOrder("가", "나");
+        assertThat(awards.get(0).value()).isEqualTo(2);
+        assertThat(awards.get(1).players()).containsExactly("나");
+        assertThat(awards.get(1).value()).isEqualTo(-400_000);
+        assertThat(awards.get(2).players()).containsExactly("다");
+        assertThat(awards.get(2).value()).isEqualTo(2);
+    }
+
+    @Test
+    void 해당자가_없는_직원상은_빠진다() {
+        var market = market();
+        var a = new WorkDesk(1_000, 35_000, 20, 0);
+        var standings = Settlement.standings(new LinkedHashMap<>(Map.of("가", a)), market);
+        assertThat(Settlement.awards(standings, Map.of(), 1_000)).isEmpty();
+    }
 }

@@ -164,6 +164,7 @@ class GameFlowTest {
         var guestResult = guest.await("result", m -> true, 0);
         assertThat(guestResult.path("recorded").asBoolean()).isFalse();
         assertThat(result.path("standings").size()).isEqualTo(2);
+        assertThat(result.path("awards").isArray()).isTrue();
 
         Integer saved = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM game_result r JOIN profile p ON p.id = r.profile_id
