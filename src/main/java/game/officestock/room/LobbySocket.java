@@ -188,6 +188,7 @@ public class LobbySocket extends TextWebSocketHandler {
         Patrol patrol = new Patrol();
         final List<Settlement.TradeRecord> trades = new ArrayList<>();
         List<Settlement.Standing> standings;
+        List<Settlement.Award> awards = List.of();
         long tick;
         boolean finished;
         Thread marketClock;
@@ -227,6 +228,7 @@ public class LobbySocket extends TextWebSocketHandler {
             patrol = new Patrol();
             trades.clear();
             standings = null;
+            awards = List.of();
             tick = 0;
             finished = false;
             marketClock = null;
@@ -961,6 +963,9 @@ public class LobbySocket extends TextWebSocketHandler {
             if (desk != null) desksByPlayer.put(lobby.labels.get(player), desk);
         }
         lobby.standings = Settlement.standings(desksByPlayer, lobby.market);
+        var meetings = new HashMap<String, Integer>();
+        lobby.patrol.seats.forEach((id, seat) -> meetings.put(lobby.labels.get(id), seat.meetings));
+        lobby.awards = Settlement.awards(lobby.standings, meetings, startingCashWon);
         log.info("방 {} 퇴근 정산: {}", lobby.logName(), lobby.standings);
         desksByPlayer.forEach((label, desk) -> playtest.summary(lobby.logName(), label, desk.timings()));
         saveResults(lobby);
@@ -989,7 +994,7 @@ public class LobbySocket extends TextWebSocketHandler {
     private void sendResult(Lobby lobby, UUID player, WebSocketSession session) throws IOException {
         boolean recorded = lobby.profileIds.containsKey(player);
         send(session, Map.of("type", "result", "you", lobby.labels.get(player),
-                "standings", lobby.standings, "trades", lobby.trades,
+                "standings", lobby.standings, "awards", lobby.awards, "trades", lobby.trades,
                 "news", lobby.market.history(), "leaks", lobby.leaks, "startingCashWon", startingCashWon,
                 "recorded", recorded, "recordNotice", recorded
                         ? (lobby.solo ? "기록이 저장되고 명예의 전당에 반영됐습니다." : "기록이 저장됐습니다.")

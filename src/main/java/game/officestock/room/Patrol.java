@@ -58,6 +58,8 @@ final class Patrol {
         long returnTick;
         /** 훈계 이유: "market"(주식 창 적발), "messenger"(메신저 창 적발), "idle"(업무 방치). */
         String meetingReason;
+        /** 이번 판에 훈계받은 횟수(적발·업무 방치 모두). 퇴근 화면의 "최다 훈계" 상에 쓴다. */
+        int meetings;
         double suspicion;
         long idleSeconds;
         /** 연결돼 있는가. 끊긴 동안은 의심이 오르지 않고, 업무 방치로 혼나지도 않는다. */
@@ -202,6 +204,7 @@ final class Patrol {
         seat.view = View.MEETING;
         seat.returnTick = tick + beats;
         seat.meetingReason = reason;
+        seat.meetings++;
         seat.suspicion = SUSPICION_AFTER_MEETING;
         seat.idleSeconds = 0;
     }

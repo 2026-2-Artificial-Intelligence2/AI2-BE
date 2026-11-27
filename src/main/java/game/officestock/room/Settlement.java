@@ -25,6 +25,44 @@ final class Settlement {
      * 기준가로 평가하면 끝나기 직전에 크게 사서 가격을 올리는 것만으로 순자산이 늘기 때문이다.
      * 플레이어마다 같은 풀 상태에서 따로 계산하므로 순서에 따른 유불리가 없다.
      */
+    /** 오늘의 직원상. @param award "scolded"(최다 훈계), "biggestLoss"(최대 손실), "hardestWorker"(업무왕) */
+    record Award(String award, List<String> players, long value) {}
+
+    /**
+     * 오늘의 직원상: 가장 많이 훈계받은 사람, 가장 많이 잃은 사람, 업무를 가장 많이 한 사람.
+     * 동점이면 모두 받는다. 해당하는 사람이 없으면(아무도 안 혼남, 아무도 안 잃음, 업무 0건) 그 상은 빠진다.
+     * @param meetingsByPlayer 이름별 훈계 횟수 @param startingCashWon 출근 자금(손익 = 순자산 − 출근 자금)
+     */
+    static List<Award> awards(List<Standing> standings, Map<String, Integer> meetingsByPlayer,
+                              long startingCashWon) {
+        var awards = new ArrayList<Award>();
+        top(standings, s -> meetingsByPlayer.getOrDefault(s.player(), 0)).ifPresent(a ->
+                awards.add(new Award("scolded", a.players(), a.value())));
+        top(standings, s -> startingCashWon - s.netWorthWon()).ifPresent(a ->
+                awards.add(new Award("biggestLoss", a.players(), -a.value())));
+        top(standings, Standing::completedTasks).ifPresent(a ->
+                awards.add(new Award("hardestWorker", a.players(), a.value())));
+        return awards;
+    }
+
+    /** 점수가 가장 큰(0보다 큰) 사람들. 순위표 순서를 따른다. */
+    private static java.util.Optional<Award> top(List<Standing> standings,
+                                                  java.util.function.ToLongFunction<Standing> score) {
+        long best = 0;
+        var players = new ArrayList<String>();
+        for (var s : standings) {
+            long value = score.applyAsLong(s);
+            if (value <= 0 || value < best) continue;
+            if (value > best) {
+                best = value;
+                players.clear();
+            }
+            players.add(s.player());
+        }
+        return players.isEmpty() ? java.util.Optional.empty()
+                : java.util.Optional.of(new Award("", List.copyOf(players), best));
+    }
+
     static List<Standing> standings(Map<String, WorkDesk> desksByPlayer, Market market) {
         var rows = new ArrayList<Standing>();
         desksByPlayer.forEach((player, desk) -> {

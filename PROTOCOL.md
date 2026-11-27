@@ -339,12 +339,15 @@
 {"type":"result","you":"P2","startingCashWon":100000,
  "standings":[{"rank":1,"player":"P1","netWorthWon":100000,"cashWon":100000,"stockValueWon":0,"loanRepayWon":0,"workIncomeWon":0,"completedTasks":0,"holdings":{}},
               {"rank":2,"player":"P2","netWorthWon":97890,"cashWon":95456,"stockValueWon":14434,"loanRepayWon":12000,"workIncomeWon":350,"completedTasks":1,"holdings":{"MINT":5,"MOON":10}}],
+ "awards":[{"award":"scolded","players":["P2"],"value":2},{"award":"biggestLoss","players":["P2"],"value":-2110},{"award":"hardestWorker","players":["P2"],"value":1}],
  "trades":[{"second":17,"player":"P2","symbol":"MINT","side":"지정가 매수","quantity":5,"amountWon":4755}, …],
  "news":[…],
  "leaks":[{"player":"P2","newsNumber":1,"text":"우리회사 회장님 은퇴설"}]}
 ```
 
 순자산 = 현금 + 주식 청산가 − 대출 원리금 − 신용 빚이다. `startingCashWon`은 출근 때 받은 현금으로, 순자산에서 빼면 이번 판 손익이다. `standings`의 각 줄에는 `marginDebtWon`과 `bankrupt`(순자산 음수면 true)가 더 있다. 같은 금액이면 같은 순위다. 퇴근 뒤 재접속해도 다시 온다.
+
+`awards`는 오늘의 직원상이다. `scolded`는 훈계(적발·업무 방치)를 가장 많이 받은 사람(`value` = 횟수), `biggestLoss`는 가장 많이 잃은 사람(`value` = 손익, 음수), `hardestWorker`는 업무를 가장 많이 한 사람(`value` = 건수)이다. 동점이면 `players`에 모두 들어간다. 해당하는 사람이 없으면(아무도 안 혼남, 아무도 안 잃음, 업무 0건) 그 상은 빠진다. 혼자 하기에서도 오지만 화면이 보여 줄지는 정한다.
 
 ### 연결 관련
 
