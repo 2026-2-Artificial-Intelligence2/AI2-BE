@@ -1,7 +1,11 @@
 # 화면 파일을 내보내고, 게임 연결(/ws/lobby)만 게임 서버로 넘긴다. 화면과 서버가 같은 주소라 따로 설정할 것이 없다.
 # SITE_ADDRESS가 도메인이면 Let's Encrypt 인증서를 자동으로 받고 HTTP는 HTTPS로 넘긴다.
+# 쉼표로 여러 주소를 줄 수 있다(예: "mollae.pro, www.mollae.pro"). www.로 들어오면 www 없는 주소로 넘긴다.
 {$SITE_ADDRESS} {
 	encode zstd gzip
+
+	@www expression {host}.startsWith("www.")
+	redir @www https://{http.request.host.labels.1}.{http.request.host.labels.0}{uri} permanent
 
 	handle /ws/* {
 		reverse_proxy server:8080

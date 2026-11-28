@@ -1,14 +1,19 @@
 # 배포용 묶음: 웹(Caddy: 화면 + HTTPS + 게임 연결 넘기기), 게임 서버, PostgreSQL을 서버 한 대에 띄운다.
-# 두 저장소를 나란히 받아 둔 상태에서(office-stock/office-stock-BE, office-stock/office-stock-FE) 이 폴더에서 실행한다:
+# 이미지는 GitHub Actions가 main마다 만들어 ghcr.io에 올린다(두 저장소의 .github/workflows/image.yml).
+# 서버에서는 받아서 실행만 한다(메모리 1GB 서버에서 빌드하지 않는다):
 #   cp .env.example .env   # 값 채우기
-#   docker compose up -d --build
+#   docker compose pull && docker compose up -d
+# 내 컴퓨터에서 직접 빌드해 시험할 때는 두 저장소를 나란히 받아 두고 docker compose up -d --build.
 # 방은 게임 서버 메모리에만 있으므로 server는 반드시 하나만 띄운다(scale 금지).
+# 메모리: 1GB 서버(Oracle E2.1.Micro)에 맞춰 DB·자바를 작게 잡았다. 서버에 스왑 2GB를 꼭 만든다(README).
 name: office-stock
 
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # 작은 서버용: 공유 버퍼·연결 수를 줄인다(이 게임은 판이 끝날 때만 조금 쓴다).
+    command: postgres -c shared_buffers=32MB -c max_connections=20 -c work_mem=2MB -c maintenance_work_mem=16MB
     environment:
       POSTGRES_DB: officestock
       POSTGRES_USER: officestock
@@ -22,6 +27,7 @@ services:
       retries: 20
 
   server:
+    image: ghcr.io/2026-2-artificial-intelligence2/ai2-be:${IMAGE_TAG:-latest}
     build: ..
     restart: unless-stopped
     depends_on:
@@ -33,14 +39,14 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      JAVA_OPTS: ${JAVA_OPTS:--Xmx1g}
+      # 1GB 서버용. 메모리가 넉넉한 서버면 -Xmx1g 정도로 올린다.
+      JAVA_OPTS: ${JAVA_OPTS:--Xmx320m -XX:MaxMetaspaceSize=160m -Xss512k -XX:+UseSerialGC -XX:TieredStopAtLevel=1}
     volumes:
       - playtest:/app/playtest   # 업무 시간 기록(수당 조정용)
 
   web:
-    build:
-      context: ../../office-stock-FE
-      dockerfile: ../office-stock-BE/deploy/web.Dockerfile
+    image: ghcr.io/2026-2-artificial-intelligence2/ai2-fe:${IMAGE_TAG:-latest}
+    build: ../../office-stock-FE
     restart: unless-stopped
     depends_on:
       - server
