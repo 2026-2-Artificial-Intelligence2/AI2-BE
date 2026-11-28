@@ -91,4 +91,15 @@ class PlayerWalletTest {
         assertThat(wallet.balance().cashWon()).isEqualTo(35_000);
         assertThatThrownBy(() -> wallet.rewardCompletedTask(3, 35_000)).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void 팔_주식의_원가는_보유_원가를_수량_비율로_나눈다() {
+        var wallet = new PlayerWallet(10_000_000, FEE_BPS);
+        var pool = new StockPool(1_000, 10_000_000);
+        var fill = wallet.buy("MINT", pool, 10);
+        long cost = fill.netWon(true);
+        assertThat(wallet.costOf("MINT", 10)).isEqualTo(cost);
+        assertThat(wallet.costOf("MINT", 5)).isEqualTo(Math.round(cost / 2.0));
+        assertThat(wallet.costOf("NONE", 5)).isZero();
+    }
 }

@@ -773,6 +773,7 @@ public class LobbySocket extends TextWebSocketHandler {
         var pool = lobby.market.pool(symbol);
         PlayerWallet.Fill fill;
         long spotBefore = lobby.market.spotPrice(symbol);
+        long soldCost = buying ? 0 : desk.wallet().costOf(symbol, quantity);
         try {
             fill = buying ? desk.wallet().buy(symbol, pool, quantity, leverage)
                           : desk.wallet().sell(symbol, pool, quantity);
@@ -783,8 +784,10 @@ public class LobbySocket extends TextWebSocketHandler {
         lobby.market.recordTrade(symbol, spotBefore, quantity);
         String side = label != null ? label
                 : (limit ? "지정가 " : "") + (leverage > 1 ? "신용 " + leverage + "배 " : "") + (buying ? "매수" : "매도");
-        lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS,
-                lobby.labels.get(player), symbol, side, quantity, amount));
+        long second = lobby.tick * Market.TICK_SECONDS;
+        lobby.trades.add(buying
+                ? new Settlement.TradeRecord(second, lobby.labels.get(player), symbol, side, quantity, amount)
+                : Settlement.TradeRecord.sold(second, lobby.labels.get(player), symbol, side, quantity, amount, soldCost));
         var client = lobby.clients.get(player);
         if (client != null) {
             sendDesk(client, desk);
@@ -1065,8 +1068,11 @@ public class LobbySocket extends TextWebSocketHandler {
                 continue;
             }
             lobby.market.recordTrade(trade.symbol(), trade.spotBeforeWon(), trade.quantity());
-            lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS, Boss.LABEL, trade.symbol(),
-                    trade.buy() ? "매수" : "매도", trade.quantity(), trade.amountWon()));
+            long second = lobby.tick * Market.TICK_SECONDS;
+            lobby.trades.add(trade.buy()
+                    ? new Settlement.TradeRecord(second, Boss.LABEL, trade.symbol(), "매수", trade.quantity(), trade.amountWon())
+                    : Settlement.TradeRecord.sold(second, Boss.LABEL, trade.symbol(), "매도", trade.quantity(),
+                            trade.amountWon(), trade.costWon()));
             boss.say(decision.line() != null ? decision.line() : boss.defaultLine(trade, boss.mood(lobby.market)), lobby.tick);
         }
     }
@@ -1111,6 +1117,9 @@ public class LobbySocket extends TextWebSocketHandler {
             if (desk != null) desksByPlayer.put(lobby.labels.get(player), desk);
         }
         lobby.standings = Settlement.standings(desksByPlayer, lobby.market);
+        var closing = Settlement.withClosingReturns(lobby.trades, lobby.market, tradeFeeBps);
+        lobby.trades.clear();
+        lobby.trades.addAll(closing);
         var meetings = new HashMap<String, Integer>();
         lobby.patrol.seats.forEach((id, seat) -> meetings.put(lobby.labels.get(id), seat.meetings));
         lobby.awards = Settlement.awards(lobby.standings, meetings, startingCashWon);

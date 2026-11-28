@@ -273,8 +273,10 @@
 ### `myTrades` — 이번 판 내 거래
 
 ```json
-{"type":"myTrades","trades":[{"second":1,"player":"P2","symbol":"MOON","side":"매수","quantity":10,"amountWon":10139}]}
+{"type":"myTrades","trades":[{"second":1,"player":"P2","symbol":"MOON","side":"매수","quantity":10,"amountWon":10139,"returnPercent":null,"profitWon":null}]}
 ```
+
+`returnPercent`는 그 거래의 수익률(%, 소수 첫째 자리), `profitWon`은 같은 기준의 손익(원)이다. 매도는 체결 때 평균 매수가(거래 비용 포함) 대비 실현 수익률이 들어 있고, 매수는 판 중에는 `null`이다가 퇴근 결과(`result.trades`)에서 "퇴근 때 시세로 팔았다면"의 수익률로 채워진다.
 
 ### `newsHistory` — 알림창
 
@@ -359,7 +361,7 @@
  "standings":[{"rank":1,"player":"P1","netWorthWon":100000,"cashWon":100000,"stockValueWon":0,"loanRepayWon":0,"workIncomeWon":0,"completedTasks":0,"holdings":{}},
               {"rank":2,"player":"P2","netWorthWon":97890,"cashWon":95456,"stockValueWon":14434,"loanRepayWon":12000,"workIncomeWon":350,"completedTasks":1,"holdings":{"MINT":5,"MOON":10}}],
  "awards":[{"award":"scolded","players":["P2"],"value":2},{"award":"biggestLoss","players":["P2"],"value":-2110},{"award":"hardestWorker","players":["P2"],"value":1}],
- "trades":[{"second":17,"player":"P2","symbol":"MINT","side":"지정가 매수","quantity":5,"amountWon":4755}, …],
+ "trades":[{"second":17,"player":"P2","symbol":"MINT","side":"지정가 매수","quantity":5,"amountWon":4755,"returnPercent":3.2,"profitWon":152}, …],
  "news":[…],
  "leaks":[{"player":"P2","newsNumber":1,"text":"우리회사 회장님 은퇴설"}]}
 ```

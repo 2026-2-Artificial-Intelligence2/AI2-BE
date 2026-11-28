@@ -12,8 +12,55 @@ import java.util.TreeMap;
 final class Settlement {
     private Settlement() {}
 
+    /**
+     * @param returnPercent 이 거래의 수익률(%), 소수 첫째 자리. 매도는 평균 매수가 대비 실현 수익률,
+     *                      매수는 퇴근 때 시세로 판다고 칠 때의 수익률(정산 때 채운다). 모르면 null.
+     * @param profitWon 같은 기준의 손익(원). 모르면 null.
+     */
     record TradeRecord(long second, String player, String symbol, String side,
-                       long quantity, long amountWon) {}
+                       long quantity, long amountWon, Double returnPercent, Long profitWon) {
+        TradeRecord(long second, String player, String symbol, String side, long quantity, long amountWon) {
+            this(second, player, symbol, side, quantity, amountWon, null, null);
+        }
+
+        /** 받은 돈과 들인 돈으로 수익률·손익을 함께 채운다. */
+        static TradeRecord sold(long second, String player, String symbol, String side, long quantity,
+                                long receivedWon, long costWon) {
+            Double percent = Settlement.returnPercent(receivedWon, costWon);
+            return new TradeRecord(second, player, symbol, side, quantity, receivedWon, percent,
+                    percent == null ? null : receivedWon - costWon);
+        }
+
+        boolean buying() {
+            return side.endsWith("매수");
+        }
+
+        TradeRecord withReturn(long valueWon) {
+            Double percent = Settlement.returnPercent(valueWon, amountWon);
+            return new TradeRecord(second, player, symbol, side, quantity, amountWon, percent,
+                    percent == null ? null : valueWon - amountWon);
+        }
+    }
+
+    /** 수익률(%): 받은 돈 ÷ 들인 돈 − 1, 소수 첫째 자리. 들인 돈이 없으면 null. */
+    static Double returnPercent(long receivedWon, long paidWon) {
+        if (paidWon <= 0) return null;
+        return Math.round((receivedWon - paidWon) * 1000.0 / paidWon) / 10.0;
+    }
+
+    /**
+     * 매수 기록에 퇴근 때 수익률을 채운다: 그 주식을 퇴근 시세로 판다고 치고(거래 비용 뺌) 산 값과 비교한다.
+     * 매도 기록은 체결할 때 이미 채웠다.
+     */
+    static List<TradeRecord> withClosingReturns(List<TradeRecord> trades, Market market, int feeBps) {
+        return trades.stream().map(trade -> {
+            if (!trade.buying() || trade.returnPercent() != null || trade.quantity() <= 0) return trade;
+            long spot = market.spotPrice(trade.symbol());
+            long gross = Math.multiplyExact(spot, trade.quantity());
+            long net = gross - (Math.multiplyExact(gross, (long) feeBps) + 9_999) / 10_000;
+            return trade.withReturn(net);
+        }).toList();
+    }
 
     /** @param marginDebtWon 신용 매수 빚 @param bankrupt 순자산이 0 미만(파산) */
     record Standing(int rank, String player, long netWorthWon, long cashWon, long stockValueWon,
