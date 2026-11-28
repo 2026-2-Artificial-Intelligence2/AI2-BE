@@ -1,5 +1,7 @@
 # 배포: Oracle Cloud 무료 서버 한 대 (mollae.pro)
 
+**지금 운영 중:** https://mollae.pro — Oracle 춘천·서울 리전 `VM.Standard.E2.1.Micro`(x86, 1GB, Ubuntu 24.04), 공인 IP `161.33.38.80`, 배포 폴더 `~/AI2-BE/deploy`(2026-11-28).
+
 서버 한 대에 세 가지를 띄운다.
 
 | 이름 | 하는 일 | 이미지 |
@@ -38,13 +40,15 @@ Compute → Instances → **Create instance**
 | `0.0.0.0/0` | TCP | 80,443 |
 | `0.0.0.0/0` | UDP | 443 |
 
-**② 서버 안 방화벽:** Oracle의 Ubuntu 이미지는 서버 안에서도 막아 둔다. SSH로 들어가서(4번) 실행한다.
+**② 서버 안 방화벽:** Oracle의 Ubuntu 이미지는 서버 안에서도 막아 둔다. SSH로 들어가서(4번) 실행한다. 규칙은 **"REJECT" 줄보다 앞에** 들어가야 한다(이미지마다 REJECT 줄 번호가 달라서 번호를 찾아 그 자리에 넣는다. Ubuntu 24.04 E2.1.Micro는 5번이었다).
 
 ```bash
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
-sudo iptables -I INPUT 6 -m state --state NEW -p udp --dport 443 -j ACCEPT
+R=$(sudo iptables -L INPUT -n --line-numbers | awk '/REJECT/ {print $1; exit}')
+sudo iptables -I INPUT $R -m state --state NEW -p udp --dport 443 -j ACCEPT
+sudo iptables -I INPUT $R -m state --state NEW -p tcp --dport 443 -j ACCEPT
+sudo iptables -I INPUT $R -m state --state NEW -p tcp --dport 80 -j ACCEPT
 sudo netfilter-persistent save
+sudo iptables -L INPUT -n --line-numbers   # 80·443 줄이 REJECT보다 위에 있는지
 ```
 
 ## 4. 접속, 스왑, Docker
@@ -61,8 +65,8 @@ ssh -i ~/Downloads/ssh-key-*.key ubuntu@158.180.1.2
 sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
-# Docker
-curl -fsSL https://get.docker.com | sudo sh
+# Docker(Ubuntu 패키지)
+sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2 git
 sudo usermod -aG docker ubuntu
 exit   # 다시 접속해야 docker를 sudo 없이 쓸 수 있다
 ```
