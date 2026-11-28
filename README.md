@@ -170,7 +170,7 @@ java -jar build/libs/office-stock.jar --game.allowed-origins='http://localhost:*
 |---|---|---|
 | `server.port` | 8080 | 서버 포트 |
 | `game.starting-cash-won` | 10000000 | 시작 자금 |
-| `game.work-reward-won` | 25000 | 업무 1건 수당(업무 시간 기록 중앙값 3.8초 × 초당 5,000~7,000원으로 맞춤) |
+| `game.work-reward-won` | 4000 | 업무 1건 수당(주식 시뮬레이션 기준으로 맞춤, GAME_DESIGN.md "업무 수당 다시 맞추기") |
 | `game.session-seconds` | 900 | 근무 시간 기본값(방장이 대기실에서 5~20분 중에 바꿀 수 있다) |
 | `game.lunch-early-return-chance` | 0.2 | 점심 때 부장님이 일찍 돌아올 확률 |
 | `game.loan-interest-percent` | 20 | 비상 대출 이자(%) |
