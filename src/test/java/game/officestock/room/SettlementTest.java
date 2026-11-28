@@ -92,14 +92,16 @@ class SettlementTest {
     @Test
     void 매도는_실현_수익률을_매수는_퇴근_시세_수익률을_채운다() {
         var market = market();
-        var sold = new Settlement.TradeRecord(10, "나", "MINT", "매도", 10, 110_000, 10.0);
+        var sold = Settlement.TradeRecord.sold(10, "나", "MINT", "매도", 10, 110_000, 100_000);
         var bought = new Settlement.TradeRecord(20, "나", "MINT", "신용 2배 매수", 10, 100_200);
         var trades = Settlement.withClosingReturns(List.of(sold, bought), market, 20);
 
         assertThat(trades.get(0).returnPercent()).isEqualTo(10.0);   // 매도는 그대로
+        assertThat(trades.get(0).profitWon()).isEqualTo(10_000L);
         long gross = market.spotPrice("MINT") * 10;
         long net = gross - (gross * 20 + 9_999) / 10_000;
         assertThat(trades.get(1).returnPercent()).isEqualTo(Settlement.returnPercent(net, 100_200));
+        assertThat(trades.get(1).profitWon()).isEqualTo(net - 100_200);
         assertThat(Settlement.returnPercent(110_000, 100_000)).isEqualTo(10.0);
         assertThat(Settlement.returnPercent(5, 0)).isNull();
     }

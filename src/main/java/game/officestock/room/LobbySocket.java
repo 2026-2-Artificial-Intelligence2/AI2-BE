@@ -784,9 +784,10 @@ public class LobbySocket extends TextWebSocketHandler {
         lobby.market.recordTrade(symbol, spotBefore, quantity);
         String side = label != null ? label
                 : (limit ? "지정가 " : "") + (leverage > 1 ? "신용 " + leverage + "배 " : "") + (buying ? "매수" : "매도");
-        lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS,
-                lobby.labels.get(player), symbol, side, quantity, amount,
-                buying ? null : Settlement.returnPercent(amount, soldCost)));
+        long second = lobby.tick * Market.TICK_SECONDS;
+        lobby.trades.add(buying
+                ? new Settlement.TradeRecord(second, lobby.labels.get(player), symbol, side, quantity, amount)
+                : Settlement.TradeRecord.sold(second, lobby.labels.get(player), symbol, side, quantity, amount, soldCost));
         var client = lobby.clients.get(player);
         if (client != null) {
             sendDesk(client, desk);
@@ -1067,9 +1068,11 @@ public class LobbySocket extends TextWebSocketHandler {
                 continue;
             }
             lobby.market.recordTrade(trade.symbol(), trade.spotBeforeWon(), trade.quantity());
-            lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS, Boss.LABEL, trade.symbol(),
-                    trade.buy() ? "매수" : "매도", trade.quantity(), trade.amountWon(),
-                    trade.buy() ? null : Settlement.returnPercent(trade.amountWon(), trade.costWon())));
+            long second = lobby.tick * Market.TICK_SECONDS;
+            lobby.trades.add(trade.buy()
+                    ? new Settlement.TradeRecord(second, Boss.LABEL, trade.symbol(), "매수", trade.quantity(), trade.amountWon())
+                    : Settlement.TradeRecord.sold(second, Boss.LABEL, trade.symbol(), "매도", trade.quantity(),
+                            trade.amountWon(), trade.costWon()));
             boss.say(decision.line() != null ? decision.line() : boss.defaultLine(trade, boss.mood(lobby.market)), lobby.tick);
         }
     }

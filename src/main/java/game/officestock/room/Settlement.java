@@ -15,19 +15,30 @@ final class Settlement {
     /**
      * @param returnPercent 이 거래의 수익률(%), 소수 첫째 자리. 매도는 평균 매수가 대비 실현 수익률,
      *                      매수는 퇴근 때 시세로 판다고 칠 때의 수익률(정산 때 채운다). 모르면 null.
+     * @param profitWon 같은 기준의 손익(원). 모르면 null.
      */
     record TradeRecord(long second, String player, String symbol, String side,
-                       long quantity, long amountWon, Double returnPercent) {
+                       long quantity, long amountWon, Double returnPercent, Long profitWon) {
         TradeRecord(long second, String player, String symbol, String side, long quantity, long amountWon) {
-            this(second, player, symbol, side, quantity, amountWon, null);
+            this(second, player, symbol, side, quantity, amountWon, null, null);
+        }
+
+        /** 받은 돈과 들인 돈으로 수익률·손익을 함께 채운다. */
+        static TradeRecord sold(long second, String player, String symbol, String side, long quantity,
+                                long receivedWon, long costWon) {
+            Double percent = Settlement.returnPercent(receivedWon, costWon);
+            return new TradeRecord(second, player, symbol, side, quantity, receivedWon, percent,
+                    percent == null ? null : receivedWon - costWon);
         }
 
         boolean buying() {
             return side.endsWith("매수");
         }
 
-        TradeRecord withReturn(Double percent) {
-            return new TradeRecord(second, player, symbol, side, quantity, amountWon, percent);
+        TradeRecord withReturn(long valueWon) {
+            Double percent = Settlement.returnPercent(valueWon, amountWon);
+            return new TradeRecord(second, player, symbol, side, quantity, amountWon, percent,
+                    percent == null ? null : valueWon - amountWon);
         }
     }
 
@@ -47,7 +58,7 @@ final class Settlement {
             long spot = market.spotPrice(trade.symbol());
             long gross = Math.multiplyExact(spot, trade.quantity());
             long net = gross - (Math.multiplyExact(gross, (long) feeBps) + 9_999) / 10_000;
-            return trade.withReturn(returnPercent(net, trade.amountWon()));
+            return trade.withReturn(net);
         }).toList();
     }
 
