@@ -122,8 +122,8 @@
 | `CHAT P2 내용` | 귓속말(보낸 사람과 받는 사람에게만 간다). |
 | `MIC 35` | 내 마이크 소리 크기(0~100 정수). 브라우저에서 재서 바뀔 때마다 보낸다(0.1초 간격 정도). 대기실·게임 중·퇴근 뒤 언제나 된다. 게임 중 50 이상이 1초 이어지면 부장님이 그 사람에게 걸어간다(GAME_DESIGN.md "부장님이 소리를 듣는다"). 같은 크기가 이어지면 다시 보내지 않아도 서버가 매초 마지막 값으로 잰다. |
 | `MIC OFF` | 마이크를 껐다. 연결이 끊기거나 방을 나가도 같은 처리를 한다. |
-| `LEAK 내용` | 익명 찌라시(게임 중, 메신저 창에서, 한 판에 한 번, 60자). 모두에게 찌라시로 뜨고 가격은 움직이지 않는다. |
-| `LEAK_ARTICLE {"headline":"제목","body":"본문"}` | 제목 60자, 본문 300자 이내. 기존 `LEAK`와 같은 한 판 한 번 제한을 적용한다. 본문은 `market.newsBody`와 `newsHistory.items[].body`로 전달한다. |
+| `LEAK 내용` | 익명 찌라시(게임 중, 메신저 창에서, 한 사람이 한 판에 세 번까지 45초 간격, 60자). 모두에게 찌라시로 뜨고 가격은 움직이지 않는다. |
+| `LEAK_ARTICLE {"headline":"제목","body":"본문"}` | 제목 60자, 본문 300자 이내. `LEAK`와 같은 횟수·간격 제한을 적용한다(`catalog.leak`의 `perRound`, `gapSeconds`). 너무 빠르면 "N초 뒤에 다시 뿌릴 수 있습니다.", 다 쓰면 "…3번까지…" 오류가 온다. 본문은 `market.newsBody`와 `newsHistory.items[].body`로 전달한다. |
 
 ## 서버 → 클라이언트 메시지
 
@@ -196,7 +196,8 @@
  "portfolio":{"positions":{"MOON":{"shares":10,"costWon":10139,"avgPriceWon":1013,"valueWon":9852,"profitWon":-287,"profitPercent":-2.8}},"realizedWon":0},
  "newsNumber":3,"newsKind":"news","headline":"달나라로봇 · 야간 배송 로봇 실증 승인","newsBody":"…","newsSecond":20,"newsSymbols":["MOON"],
  "beat":10,"walking":true,"step":{"from":{"x":1,"z":-2},"to":{"x":3,"z":-2},"listener":{"position":{"x":1,"z":-1},"forwardZ":1}},
- "coughBeat":-1}
+ "coughBeat":-1,
+ "boss":{"mood":"annoyed","atDesk":true,"line":"영 시원찮네.","lineSecond":312}}
 ```
 
 | 필드 | 뜻 |
@@ -212,6 +213,7 @@
 | `portfolio` | 보유 종목별 원가·평균 매수가·청산가·손익, 신용 빚(`debtWon`)과 담보 비율(`marginRatioPercent`, 빚이 없으면 100), 확정 손익. 청산가는 "지금 혼자 전부 팔면 받을 금액(거래 비용 뺀 뒤)"이고, 퇴근 정산도 이 값으로 한다. |
 | `suspicion` | 내 업무 게이지(의심, 0~100). 나에게만 온다. 40 이상 주황, 70 이상 빨강으로 보여주면 된다. |
 | `colleagues` | 동료 목록 `[{"label":"P1","meeting":false}, …]`. 훈계 중인지만 알려준다(동료의 게이지는 보내지 않는다). 내 것은 없다. |
+| `boss` | 부장님 상태. `mood`는 부장님 손익으로 정한 기분(`furious` 격노 −8% 이하, `annoyed` 짜증 −3% 이하, `normal`, `pleased` +3% 이상, `elated` +8% 이상). `atDesk`가 true면 자기 자리(서쪽 −5.3, 0)에 앉아 있다(순찰 사이, 발소리 없음). `line`은 매매 뒤 혼잣말로 6초 동안만 오고(그 밖에는 null), `lineSecond`는 말한 판 경과 초다. 기분은 숫자로 보여 주지 말고 소리·말로만 드러낸다. |
 | `micLevels` | 마이크를 켠 사람(나 포함)의 소리 크기 `{"P1":35,"P2":0}`. 마이크를 켜지 않은 사람은 없다. 바로바로 바뀌는 값은 `mic` 메시지로 온다. |
 | `newsNumber`, `newsKind`, `headline`, `newsBody`, `newsSecond`, `newsSymbols` | 가장 최근의 속보·찌라시. `newsNumber`가 커질 때만 팝업을 띄운다. 재접속 직후에는 띄우지 않는다. |
 | `beat`, `walking`, `step` | 부장님 순찰. 2초 박자(`beat`)마다 바뀌고, `walking`이면 `step.from → step.to`로 걷는 발소리를 낸다. `listener`는 내 자리의 위치와 바라보는 방향(`forwardZ`)이다. 단위는 미터. 같은 `beat`는 한 번만 재생한다. |
@@ -223,7 +225,7 @@
 {"type":"meeting","newsNumber":3,"reason":"market"}
 ```
 
-`reason`은 `market`(주식 창 적발), `messenger`(메신저 창 적발), `idle`(업무 방치)이다. 훈계 중에는 컴퓨터를 볼 수 없으므로 시세·팝업이 오지 않는다. `newsNumber`로 놓친 속보 번호만 맞춰 두고, 끝나면 다시 `market`(view `WORK`)이 온다.
+`reason`은 `market`(주식 창 적발), `messenger`(메신저 창 적발), `idle`(업무 방치), `mood`(부장님이 크게 잃어 격노해서 잘못 없이 불려 감)이다. 부장님이 크게 벌어 신났을 때는 한 사람당 한 번 적발을 봐주고, 그 사람에게만 `notice`("부장님이 기분이 좋아서 이번 한 번은 봐줬어요…")가 온다. 퇴근 결과의 `trades`에는 부장님 매매도 `player`가 "부장님"으로 들어간다(플레이어는 이 이름을 쓸 수 없다). 훈계 중에는 컴퓨터를 볼 수 없으므로 시세·팝업이 오지 않는다. `newsNumber`로 놓친 속보 번호만 맞춰 두고, 끝나면 다시 `market`(view `WORK`)이 온다.
 
 ### `view` — 화면 전환 결과
 
@@ -343,7 +345,7 @@
 {"type":"chat","message":{"id":3,"round":1,"second":15,"from":"P2","to":null,"text":"달나라 지금 사야 함","system":false}}
 {"type":"chat","message":{"id":4,"round":1,"second":21,"from":"사내 알림","to":null,"text":"P2 님이 주식하다 부장님께 불려 갔어요.","system":true}}
 {"type":"chatHistory","messages":[{"id":1,"second":-1,"from":"P2","to":null,"text":"안녕하세요"}, …]}
-{"type":"leakSent","message":"익명 찌라시를 뿌렸습니다. 누가 뿌렸는지는 퇴근 뒤 공개됩니다."}
+{"type":"leakSent","remaining":2,"gapSeconds":45,"message":"익명 찌라시를 뿌렸습니다. … 이번 판에 2번 더 뿌릴 수 있어요(45초 뒤부터)."}
 ```
 
 `to`가 null이면 단체방, 이름이면 귓속말이다. `second`가 −1이면 게임 밖(대기실·퇴근 뒤) 메시지다. `chatHistory`는 입장과 재접속 때 오며, 내가 볼 수 있는 것(단체방과 내 귓속말, 최근 300개)만 담긴다. 익명 찌라시는 다른 사람에게 `market`의 찌라시로 보인다. 메신저 기록은 방이 유지되는 동안 판이 바뀌어도 남는다. `round`는 몇 번째 판의 메시지인지(같은 방에서 다시 하면 1씩 늘어난다)라서, 화면은 `round`가 바뀌는 곳에 구분선을 긋는다.

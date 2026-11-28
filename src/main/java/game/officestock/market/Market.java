@@ -299,7 +299,19 @@ public final class Market {
         var phrases = changePercent > 0 ? news.rumors().good() : news.rumors().bad();
         var text = phrases.get(random.nextInt(phrases.size()))
                 .replace(NewsCatalog.NAME, catalog.stock(symbol).name());
+        hiddenMoves.put(history.size() + 1, Map.of(symbol, changePercent));
         history.add(new NewsItem(history.size() + 1, "rumor", List.of(symbol), text, null, second));
+    }
+
+    /**
+     * 뉴스·찌라시가 실제로 가리킨 방향과 세기(번호 → 종목 → %). 화면에는 보내지 않고 부장님 매매에만 쓴다.
+     * 찌라시는 진짜든 가짜든 "찌라시가 말한" 방향이다.
+     */
+    private final Map<Integer, Map<String, Integer>> hiddenMoves = new java.util.HashMap<>();
+
+    /** 서버 안에서만: 이 뉴스·찌라시가 말한 종목별 변동(%). 플레이어가 뿌린 찌라시는 비어 있다. */
+    public Map<String, Integer> movesOf(int newsNumber) {
+        return hiddenMoves.getOrDefault(newsNumber, Map.of());
     }
 
     /** 이번 틱에 속보가 난 종목. 그 틱에는 가격이 목표가로 크게 한 번에 움직인다(갭). */
@@ -318,6 +330,7 @@ public final class Market {
         trueRumorSymbol = null;
         var headline = card.multiStock() ? card.headline()
                 : catalog.stock(card.stock()).name() + " · " + card.headline();
+        hiddenMoves.put(history.size() + 1, Map.copyOf(card.moves()));
         history.add(new NewsItem(history.size() + 1, "news",
                 List.copyOf(card.moves().keySet()), headline, card.body(), second));
     }

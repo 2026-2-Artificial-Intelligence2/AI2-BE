@@ -30,8 +30,8 @@ import java.util.regex.Pattern;
 public class ProfileService {
     /** 한글·영문·숫자·밑줄·하이픈 2~10자. 공백은 안 된다(메신저 명령에서 이름을 공백으로 나눈다). */
     private static final Pattern NAME = Pattern.compile("[가-힣A-Za-z0-9_-]{2,10}");
-    /** 이름이 없는 사람에게 붙는 P1, P2… 와 헷갈리지 않게 막는다. */
-    private static final Pattern RESERVED = Pattern.compile("[Pp][0-9]+");
+    /** 이름이 없는 사람에게 붙는 P1, P2… 와 부장님(매매 기록에 쓰는 이름)과 헷갈리지 않게 막는다. */
+    private static final Pattern RESERVED = Pattern.compile("[Pp][0-9]+|부장님?");
     private static final int MIN_PASSWORD = 6, MAX_PASSWORD = 64;
     private static final int MAX_CUSTOMIZATION_CHARS = 2_000;
     /** 같은 이름으로 비밀번호를 이만큼 틀리면 잠깐 막는다. */
@@ -237,7 +237,7 @@ public class ProfileService {
         if (name == null || !NAME.matcher(name).matches())
             throw new IllegalArgumentException("이름은 한글·영문·숫자·_·- 로 2~10자여야 합니다(공백 없이).");
         if (RESERVED.matcher(name).matches())
-            throw new IllegalArgumentException("P1, P2 같은 이름은 쓸 수 없습니다.");
+            throw new IllegalArgumentException("P1, P2나 부장님 같은 이름은 쓸 수 없습니다.");
     }
 
     private static void checkPassword(String password) {
