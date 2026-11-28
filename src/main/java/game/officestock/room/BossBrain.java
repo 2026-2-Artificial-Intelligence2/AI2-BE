@@ -60,6 +60,8 @@ public class BossBrain {
 
     private final String provider;   // "openai", "anthropic", 또는 null(규칙)
     private final String model;
+    /** OpenAI 추론 강도. 기본 none: 빠르고 싸고, 조금 엉성한 판단이 오히려 부장님답다. */
+    private final String reasoning;
     private final int maxCallsPerRound;
     private final OpenAIClient openai;
     private final AnthropicClient anthropic;
@@ -69,9 +71,11 @@ public class BossBrain {
                      @Value("${game.boss-llm-openai-model:gpt-6-luna}") String openaiModel,
                      @Value("${game.boss-llm-anthropic-model:claude-haiku-5-5}") String anthropicModel,
                      @Value("${game.boss-llm-max-calls:40}") int maxCallsPerRound,
+                     @Value("${game.boss-llm-reasoning:none}") String reasoning,
                      @Value("${OPENAI_API_KEY:}") String openaiKey,
                      @Value("${ANTHROPIC_API_KEY:}") String anthropicKey) {
         this.maxCallsPerRound = maxCallsPerRound;
+        this.reasoning = reasoning;
         boolean hasOpenAI = !openaiKey.isBlank(), hasAnthropic = !anthropicKey.isBlank();
         String chosen = switch (provider) {
             case "off" -> null;
@@ -87,7 +91,7 @@ public class BossBrain {
         this.anthropic = "anthropic".equals(chosen)
                 ? AnthropicOkHttpClient.builder().apiKey(anthropicKey).timeout(TIMEOUT).maxRetries(0).build() : null;
         log.info("부장님 매매 판단: {}", chosen == null ? "규칙" + ("off".equals(provider) ? "(꺼 둠)" : "(API 키 없음)")
-                : chosen + " " + model);
+                : chosen + " " + model + ("openai".equals(chosen) ? " (추론 " + reasoning + ")" : ""));
     }
 
     boolean enabled() {
@@ -123,7 +127,7 @@ public class BossBrain {
     private Reply askOpenAI(String prompt) {
         StructuredChatCompletionCreateParams<Reply> params = ChatCompletionCreateParams.builder()
                 .model(model)
-                .reasoningEffort(ReasoningEffort.LOW)
+                .reasoningEffort(ReasoningEffort.of(reasoning))
                 .maxCompletionTokens(2000L)
                 .addSystemMessage(SYSTEM)
                 .addUserMessage(prompt)

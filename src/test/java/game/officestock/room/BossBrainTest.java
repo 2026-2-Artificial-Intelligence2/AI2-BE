@@ -37,11 +37,11 @@ class BossBrainTest {
 
     @Test
     void 키가_없으면_규칙_판단을_그대로_쓴다() throws Exception {
-        var brain = new BossBrain("auto", "gpt-6-luna", "claude-haiku-5-5", 40, "", "");
+        var brain = new BossBrain("auto", "gpt-6-luna", "claude-haiku-5-5", 40, "none", "", "");
         assertThat(brain.enabled()).isFalse();
         var rule = List.of(new Boss.Decision("MINT", true, 0.2, null));
         assertThat(brain.decide(null, Set.of("MINT"), rule).get()).isSameAs(rule);
         // off면 키가 있어도 부르지 않는다(테스트는 이 값으로 돈다).
-        assertThat(new BossBrain("off", "gpt-6-luna", "claude-haiku-5-5", 40, "sk-test", "").enabled()).isFalse();
+        assertThat(new BossBrain("off", "gpt-6-luna", "claude-haiku-5-5", 40, "none", "sk-test", "").enabled()).isFalse();
     }
 }

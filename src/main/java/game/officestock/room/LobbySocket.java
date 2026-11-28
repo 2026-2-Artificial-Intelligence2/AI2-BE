@@ -1059,7 +1059,11 @@ public class LobbySocket extends TextWebSocketHandler {
                 continue;
             }
             var trade = boss.execute(decision, lobby.market);
-            if (trade == null) continue;
+            if (trade == null) {
+                // 주문은 못 냈어도(가진 게 없는데 팔라는 등) LLM이 한 혼잣말은 남긴다.
+                boss.say(decision.line(), lobby.tick);
+                continue;
+            }
             lobby.market.recordTrade(trade.symbol(), trade.spotBeforeWon(), trade.quantity());
             lobby.trades.add(new Settlement.TradeRecord(lobby.tick * Market.TICK_SECONDS, Boss.LABEL, trade.symbol(),
                     trade.buy() ? "매수" : "매도", trade.quantity(), trade.amountWon()));
