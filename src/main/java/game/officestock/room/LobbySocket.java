@@ -1175,6 +1175,7 @@ public class LobbySocket extends TextWebSocketHandler {
         // 혼자 하기: 이달 같은 길이 판들 중 상위 몇 %인지, 명예의 전당에 올렸는지.
         if (lobby.soloRun != null) {
             var share = new LinkedHashMap<String, Object>();
+            share.put("rank", lobby.soloRun.rank());
             share.put("topPercent", lobby.soloRun.topPercent());
             share.put("runs", lobby.soloRun.runs());
             share.put("month", results.boardMonth());

@@ -40,8 +40,11 @@ public class ResultService {
     /** 기기 열쇠: 화면이 처음 만들어 보관하는 무작위 문자열. */
     private static final Pattern DEVICE_KEY = Pattern.compile("[A-Za-z0-9_-]{16,64}");
 
-    /** 이번 판이 이달 같은 근무 시간 판들 중 어디쯤인지. @param topPercent 상위 몇 %(1~100) */
-    public record Standing(long runId, int topPercent, long runs) {}
+    /**
+     * 이번 판이 이달 같은 근무 시간 판들 중 어디쯤인지.
+     * @param rank 몇 등(더 높은 판 수 + 1) @param topPercent 상위 몇 %(1~100)
+     */
+    public record Standing(long runId, long rank, int topPercent, long runs) {}
 
     private final GameResultRepository results;
     private final SoloRunRepository soloRuns;
@@ -71,7 +74,7 @@ public class ResultService {
         long better = soloRuns.countBySessionSecondsAndFinishedAtGreaterThanEqualAndReturnPercentGreaterThan(
                 run.getSessionSeconds(), from, run.getReturnPercent());
         int top = (int) Math.max(1, Math.min(100, Math.ceil((better + 1) * 100.0 / Math.max(1, runs))));
-        return new Standing(run.getId(), top, runs);
+        return new Standing(run.getId(), better + 1, top, runs);
     }
 
     /** 올린 결과: 화면에 보여 줄 이름#꼬리표와 이달 명예의 전당에서의 자리(10위 밖이면 null). */

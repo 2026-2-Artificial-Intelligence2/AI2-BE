@@ -77,8 +77,10 @@ class ResultServiceTest {
         var best = results.recordSoloRun(seconds, start, 12_000_000, false);
         assertThat(best.runs()).isEqualTo(4);
         assertThat(best.topPercent()).isEqualTo(25);   // 4판 중 1등
+        assertThat(best.rank()).isEqualTo(1);
         var second = results.recordSoloRun(seconds, start, 11_000_000, false);
         assertThat(second.topPercent()).isEqualTo(40);   // 5판 중 2등
+        assertThat(second.rank()).isEqualTo(2);
     }
 
     @Test

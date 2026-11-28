@@ -385,11 +385,11 @@
  "leaks":[{"player":"P2","newsNumber":1,"text":"우리회사 회장님 은퇴설"}]}
 ```
 
-혼자 하기에는 `share`가 더 있다: 이달 같은 근무 시간 판들(올렸든 안 올렸든) 가운데 이번 판의 위치와 올렸는지.
+혼자 하기에는 `share`가 더 있다: 이달 같은 근무 시간 판들(올렸든 안 올렸든) 가운데 이번 판의 위치(`rank`등, 상위 `topPercent`%)와 올렸는지. 판이 적을 때(10판 미만)는 화면이 "N판 중 R등"으로 보여 준다.
 
 ```json
-"share":{"topPercent":12,"runs":57,"month":"2026-11","shared":null}
-"share":{"topPercent":12,"runs":57,"month":"2026-11","shared":{"name":"김대리","tag":"4821","rank":3}}
+"share":{"rank":7,"topPercent":12,"runs":57,"month":"2026-11","shared":null}
+"share":{"rank":7,"topPercent":12,"runs":57,"month":"2026-11","shared":{"name":"김대리","tag":"4821","rank":3}}
 ```
 
 순자산 = 현금 + 주식 청산가 − 대출 원리금 − 신용 빚이다. `startingCashWon`은 출근 때 받은 현금으로, 순자산에서 빼면 이번 판 손익이다. `standings`의 각 줄에는 `marginDebtWon`과 `bankrupt`(순자산 음수면 true)가 더 있다. 같은 금액이면 같은 순위다. 퇴근 뒤 재접속해도 다시 온다.
