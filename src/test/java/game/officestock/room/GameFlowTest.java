@@ -137,7 +137,7 @@ class GameFlowTest {
         var token = profile.path("token").asText();
         assertThat(token).isNotBlank();
         var guestMessage = guest.request("GUEST 손님" + tag, "guest");
-        assertThat(guestMessage.path("notice").asText()).contains("저장되지 않");
+        assertThat(guestMessage.path("notice").asText()).contains("이 기기");
 
         var state = member.request("CREATE", "state");
         var code = state.path("code").asText();
@@ -160,9 +160,11 @@ class GameFlowTest {
         assertThat(fill.toString()).contains(symbol);
 
         var result = member.await("result", m -> true, 0);
-        assertThat(result.path("recorded").asBoolean()).isTrue();
         var guestResult = guest.await("result", m -> true, 0);
-        assertThat(guestResult.path("recorded").asBoolean()).isFalse();
+        // 함께 하기 결과에는 명예의 전당 올리기가 없다(혼자 하기만).
+        assertThat(result.has("share")).isFalse();
+        assertThat(guestResult.has("share")).isFalse();
+        assertThat(guest.request("SHARE abcdefghijklmnop0123 손님", "error").path("message").asText()).contains("혼자 하기");
         assertThat(result.path("standings").size()).isEqualTo(2);
         assertThat(result.path("awards").isArray()).isTrue();
 

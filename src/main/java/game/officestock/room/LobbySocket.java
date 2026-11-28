@@ -219,6 +219,9 @@ public class LobbySocket extends TextWebSocketHandler {
         final boolean solo;
         /** 플레이어별 프로필 id. 이름을 정하지 않고 들어온 사람은 없다(결과를 저장하지 않는다). */
         final Map<UUID, UUID> profileIds = new HashMap<>();
+        /** 혼자 하기: 이번 판 기록(상위 몇 %)과, 명예의 전당에 올렸으면 그 결과. */
+        ResultService.Standing soloRun;
+        ResultService.Shared soloShared;
 
         Lobby(String code, UUID host, Market market, long sessionSeconds, boolean solo) {
             this.code = code;
@@ -241,6 +244,8 @@ public class LobbySocket extends TextWebSocketHandler {
             trades.clear();
             standings = null;
             awards = List.of();
+            soloRun = null;
+            soloShared = null;
             tick = 0;
             finished = false;
             marketClock = null;
@@ -350,7 +355,7 @@ public class LobbySocket extends TextWebSocketHandler {
             return;
         }
         if (command.equals("LEADERBOARD")) {
-            send(session, Map.of("type", "leaderboard", "boards", results.leaderboard()));
+            send(session, Map.of("type", "leaderboard", "boards", results.leaderboard(), "month", results.boardMonth()));
             return;
         }
         if (member != null) {
@@ -376,6 +381,10 @@ public class LobbySocket extends TextWebSocketHandler {
                     lobby.nextRound(newMarket(lobby.sessionSeconds, lobby.solo));
                     log.info("방 {} {}번째 판 대기", lobby.code, lobby.round);
                     broadcast(lobby);
+                    return;
+                }
+                if (command.startsWith("SHARE ")) {
+                    share(lobby, session, command.substring(6).strip());
                     return;
                 }
                 if (command.startsWith("VOICE ")) {
@@ -1129,8 +1138,19 @@ public class LobbySocket extends TextWebSocketHandler {
         for (var entry : lobby.clients.entrySet()) sendResult(lobby, entry.getKey(), entry.getValue());
     }
 
-    /** 이름을 정한 사람의 결과를 저장한다. 솔로 결과는 명예의 전당에 쓰인다. 저장에 실패해도 정산은 그대로 보낸다. */
+    /**
+     * 결과를 저장한다. 혼자 하기는 누구든 이름 없이 한 판을 남기고(상위 몇 % 계산, 올리면 명예의 전당),
+     * 회원이면 내 전적에도 남긴다. 저장에 실패해도 정산은 그대로 보낸다.
+     */
     private void saveResults(Lobby lobby) {
+        if (lobby.solo && !lobby.standings.isEmpty()) {
+            var mine = lobby.standings.getFirst();
+            try {
+                lobby.soloRun = results.recordSoloRun(lobby.sessionSeconds, startingCashWon, mine.netWorthWon(), mine.bankrupt());
+            } catch (RuntimeException e) {
+                log.warn("방 {} 혼자 하기 기록 저장 실패", lobby.logName(), e);
+            }
+        }
         var entries = new ArrayList<ResultService.Entry>();
         for (var standing : lobby.standings) {
             lobby.labels.forEach((player, label) -> {
@@ -1149,13 +1169,48 @@ public class LobbySocket extends TextWebSocketHandler {
     }
 
     private void sendResult(Lobby lobby, UUID player, WebSocketSession session) throws IOException {
-        boolean recorded = lobby.profileIds.containsKey(player);
-        send(session, Map.of("type", "result", "you", lobby.labels.get(player),
+        var message = new LinkedHashMap<String, Object>(Map.of("type", "result", "you", lobby.labels.get(player),
                 "standings", lobby.standings, "awards", lobby.awards, "trades", lobby.trades,
-                "news", lobby.market.history(), "leaks", lobby.leaks, "startingCashWon", startingCashWon,
-                "recorded", recorded, "recordNotice", recorded
-                        ? (lobby.solo ? "기록이 저장되고 명예의 전당에 반영됐습니다." : "기록이 저장됐습니다.")
-                        : GUEST_NOTICE));
+                "news", lobby.market.history(), "leaks", lobby.leaks, "startingCashWon", startingCashWon));
+        // 혼자 하기: 이달 같은 길이 판들 중 상위 몇 %인지, 명예의 전당에 올렸는지.
+        if (lobby.soloRun != null) {
+            var share = new LinkedHashMap<String, Object>();
+            share.put("rank", lobby.soloRun.rank());
+            share.put("topPercent", lobby.soloRun.topPercent());
+            share.put("runs", lobby.soloRun.runs());
+            share.put("month", results.boardMonth());
+            share.put("shared", lobby.soloShared != null ? sharedView(lobby.soloShared) : null);
+            message.put("share", share);
+        }
+        send(session, message);
+    }
+
+    private static Map<String, Object> sharedView(ResultService.Shared shared) {
+        var view = new LinkedHashMap<String, Object>();
+        view.put("name", shared.name());
+        view.put("tag", shared.tag());
+        view.put("rank", shared.rank());
+        return view;
+    }
+
+    /**
+     * SHARE 기기열쇠 이름: 혼자 하기 퇴근 화면에서 이번 판을 이달의 명예의 전당에 올린다(한 판에 한 번).
+     * 이름은 닉네임 규칙을 따르고, 기기 열쇠에서 나온 꼬리표(#1234)로 같은 이름을 구분한다.
+     */
+    private void share(Lobby lobby, WebSocketSession session, String args) throws IOException {
+        if (!lobby.solo) throw new IllegalStateException("명예의 전당은 혼자 하기 기록만 올릴 수 있습니다.");
+        if (!lobby.finished || lobby.soloRun == null) throw new IllegalStateException("퇴근한 뒤에 올릴 수 있습니다.");
+        if (lobby.soloShared != null) throw new IllegalStateException("이미 명예의 전당에 올렸습니다.");
+        int space = args.indexOf(' ');
+        if (space < 0) throw new IllegalArgumentException("올릴 이름을 정하세요.");
+        var name = args.substring(space + 1).strip();
+        profiles.checkGuestName(name);
+        lobby.soloShared = results.share(lobby.soloRun.runId(), args.substring(0, space), name);
+        log.info("방 {} 명예의 전당에 올림: {}#{} (이달 {}위)", lobby.logName(), name, lobby.soloShared.tag(), lobby.soloShared.rank());
+        var message = new LinkedHashMap<String, Object>(sharedView(lobby.soloShared));
+        message.put("type", "shared");
+        send(session, message);
+        send(session, Map.of("type", "leaderboard", "boards", results.leaderboard(), "month", results.boardMonth()));
     }
 
     private void broadcastMarket(Lobby lobby) throws IOException {
@@ -1393,7 +1448,7 @@ public class LobbySocket extends TextWebSocketHandler {
 
     /** 비회원에게 보여 줄 안내. */
     private static final String GUEST_NOTICE =
-            "비회원은 판 결과와 꾸미기가 저장되지 않고 명예의 전당에도 오르지 않습니다. 기록을 남기려면 회원 가입하세요.";
+            "내 기록은 이 기기에만 남아요. 혼자 하기는 퇴근 화면에서 이달의 명예의 전당에 올릴 수 있어요.";
 
     /**
      * PROFILE NAME 새이름 / PROFILE CUSTOM {json} / PROFILE PASSWORD 새비밀번호 / PROFILE RECOVERY(복구 코드 새로 만들기)는

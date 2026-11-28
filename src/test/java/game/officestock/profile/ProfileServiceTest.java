@@ -108,11 +108,12 @@ class ProfileServiceTest {
     }
 
     @Test
-    void 비회원_닉네임은_회원_이름과_겹칠_수_없다() {
+    void 닉네임은_규칙만_보고_다른_사람과_겹쳐도_된다() {
         var name = newName();
         profiles.signup(name, "secret1");
-        assertThatThrownBy(() -> profiles.checkGuestName(name)).hasMessageContaining("회원이 쓰는 이름");
-        profiles.checkGuestName("손님" + SEQ.incrementAndGet());
+        profiles.checkGuestName(name);   // 명예의 전당은 기기 꼬리표로 구분한다
+        assertThatThrownBy(() -> profiles.checkGuestName("부장님")).hasMessageContaining("쓸 수 없");
+        assertThatThrownBy(() -> profiles.checkGuestName("띄 어 쓰기")).hasMessageContaining("2~10자");
     }
 
     @Test

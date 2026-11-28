@@ -16,17 +16,36 @@
 
 ## 한 판의 흐름
 
-0. 연결하자마자: 보관한 열쇠가 있으면 `AUTOLOGIN 열쇠`. 없으면 회원은 `LOGIN`/`SIGNUP`, 비회원은 `GUEST 닉네임`(선택). 첫 화면의 명예의 전당은 `LEADERBOARD`로 받는다.
+0. 연결하자마자: `GUEST 닉네임`(화면이 기억해 둔 닉네임). 첫 화면의 이달 명예의 전당은 `LEADERBOARD`로 받는다. (회원 명령은 서버에 남아 있지만 화면에서는 쓰지 않는다. 아래 참고.)
 1. 연결 → `CREATE` 또는 `JOIN 초대코드` → `state` 수신. 솔로는 `SOLO 분` 한 번으로 방을 만들고 바로 시작한다.
 2. 대기실: `state`가 바뀔 때마다 온다. 방장은 `LENGTH 분`으로 근무 시간을 고르고 `START`.
 3. 시작: 모두에게 `state`(startedAt 채워짐) → `chart` → `catalog` → `work` → `market`이 온다.
 4. 근무 중: 매초 `market`(훈계 중이면 대신 `meeting`)이 온다. 명령의 결과는 `work`, `fill`, `orders`, `myTrades` 등으로 온다.
-5. 퇴근: `result`가 온다. 이후 게임 명령은 `error`("퇴근했습니다…")로 막히고, `CHAT`, `RESTART`(방장), `LEAVE`만 된다.
+5. 퇴근: `result`가 온다. 이후 게임 명령은 `error`("퇴근했습니다…")로 막히고, `CHAT`, `RESTART`(방장), `LEAVE`, (혼자 하기) `SHARE`만 된다.
 6. 방장이 `RESTART` → 같은 방이 대기 상태(`state`의 startedAt이 null, round +1)로 돌아간다.
 
 ## 클라이언트 → 서버 명령
 
-### 회원·비회원과 명예의 전당
+### 닉네임과 명예의 전당 (로그인 없음)
+
+2026-11-28부터 화면은 로그인 없이 **닉네임만** 쓴다. 내 기록은 기기(localStorage)에 남고, 혼자 하기 결과는 퇴근 화면에서 **명예의 전당에 올릴지** 고른다.
+
+- 서버는 혼자 하기 판을 누가 했든 **이름 없이** 한 줄씩 남긴다(`solo_run`). 그래서 `result.share.topPercent`로 "이달 같은 길이 판 중 상위 몇 %"를 알려 줄 수 있다.
+- `SHARE 기기열쇠 이름`을 보내면 그 판에 이름과 **꼬리표**(`tag`, 네 자리 숫자)가 붙어 이달의 명예의 전당에 오른다. 꼬리표는 기기 열쇠의 SHA-256에서 나와 같은 기기면 늘 같고, 다른 기기가 같은 이름을 써도 `김대리#4821`처럼 구분된다. 서버에는 열쇠의 해시만 남는다.
+- 기기 열쇠는 화면이 처음 만들어 localStorage에 보관하는 16~64자 무작위 문자열(`A-Z a-z 0-9 _ -`)이다.
+- 명예의 전당은 **한국 시간 달마다** 새로 시작한다(이달 1일 0시부터 올린 판만).
+
+| 명령 | 언제 | 설명 |
+|---|---|---|
+| `SHARE 기기열쇠 김대리` | 혼자 하기 퇴근 뒤 | 이번 판을 이달의 명예의 전당에 올린다. 한 판에 한 번. 이름은 닉네임 규칙을 따른다. `shared`와 새 `leaderboard`가 온다. 함께 하기에서는 `error`. |
+
+```json
+{"type":"shared","name":"김대리","tag":"4821","rank":3}
+```
+
+`rank`는 이달 그 근무 시간 명예의 전당(상위 10명)에서의 자리이고, 10위 밖이면 `null`이다.
+
+### 회원 (화면에서는 쓰지 않음)
 
 **회원**은 이름 + 비밀번호로 가입하고 어느 기기에서든 로그인한다. 판 결과와 꾸미기가 저장되고 솔로 기록이 명예의 전당에 오른다. 가입·로그인하면 **그 기기용 자동 로그인 열쇠**(`profile.token`)를 주므로, 화면은 localStorage에 보관했다가 다음 접속 때 `AUTOLOGIN`으로 보낸다. 서버에는 비밀번호의 BCrypt 해시와 열쇠의 SHA-256 해시만 남는다.
 
@@ -39,18 +58,18 @@
 | `RESET 김대리 ABCD-EFGH-JKMN-PQRS 새비밀번호` | 방 밖 | 비밀번호를 잊었을 때. 이름 + 복구 코드(대소문자·하이픈·공백 무시)로 새 비밀번호를 정한다. 모든 기기의 로그인을 풀고 이 기기에 새 열쇠를 준다. 쓴 코드는 버리고 새 `recoveryCode`를 `profile`에 실어 준다. 틀리면 로그인과 함께 5번에 1분 막힌다. |
 | `AUTOLOGIN 열쇠` | 방 밖 | 보관한 열쇠로 자동 로그인. 성공하면 `profile`(열쇠 없음), 실패하면 `profileFailed`(열쇠를 지우고 로그인 화면으로). |
 | `LOGOUT` | 방 밖 | 이 기기의 열쇠를 지운다. 다른 기기의 로그인은 그대로다. `loggedOut`이 온다. |
-| `GUEST 닉네임` | 방 밖 | 비회원으로 한다. 이름 규칙은 회원과 같고 회원 이름과 겹치면 안 된다. `guest`가 온다. |
+| `GUEST 닉네임` | 방 밖 | 닉네임으로 한다. 이름 규칙만 본다(다른 사람·회원 이름과 겹쳐도 된다). `guest`가 온다. |
 | `PROFILE NAME 새이름` | 회원, 언제나 | 이름을 바꾼다. 이미 들어가 있는 방에서는 다음 방부터 바뀐다. |
 | `PROFILE CUSTOM {"hair":"red"}` | 회원, 언제나 | 꾸미기 설정 저장. JSON 객체, 2,000자 이내. 내용은 프론트엔드가 정한다. |
 | `PROFILE PASSWORD 새비밀번호` | 회원, 언제나 | 비밀번호를 바꾼다. `notice`가 온다. |
 | `PROFILE RECOVERY` | 회원, 언제나 | 복구 코드를 새로 만든다. 예전 코드는 더는 쓸 수 없다. `{"type":"recoveryCode","code":"…"}`가 온다. |
 | `PROFILE DELETE 비밀번호` | 회원, 방 밖 | 회원 탈퇴. 비밀번호를 확인하고 프로필·모든 기기의 로그인·판 결과(명예의 전당 기록 포함)를 지운다. `{"type":"accountDeleted","message":"…"}`가 오면 화면은 보관한 열쇠를 지우고 입장 화면으로 간다. |
 | `RECORDS` | 회원, 언제나 | 내 전적. `records`가 온다(아래). |
-| `LEADERBOARD` | 언제나 | 솔로 명예의 전당(`leaderboard`). 로그인하지 않아도 된다. |
+| `LEADERBOARD` | 언제나 | 이달의 솔로 명예의 전당(`leaderboard`). |
 
 - 방에서는 회원 이름이나 비회원 닉네임으로 불린다. `state.members[].label`, `youLabel`, 메신저의 `from`·`to`, `CHAT 이름 내용`의 받는 사람, `result`의 `player`가 모두 그 이름이다. `state.members[].member`가 true면 회원이다.
 - 같은 회원으로 같은 방에 두 번(다른 창) 들어갈 수 없고, 방에 같은 이름이 있으면 들어갈 수 없다.
-- 퇴근 정산 때 회원의 결과만 저장된다. `result.recorded`(저장됐는지)와 `result.recordNotice`(안내 문구)가 온다.
+- 퇴근 정산 때 회원이면 `game_result`에도 남는다(내 전적). 혼자 하기 판은 회원이든 아니든 `solo_run`에 이름 없이 남는다.
 
 ```json
 {"type":"records",
@@ -68,7 +87,7 @@
 |---|---|---|
 | `CREATE` | 방 밖 | 방을 만들고 방장이 된다. |
 | `JOIN 123456` | 방 밖 | 초대 코드로 입장한다(시작 전에만, 최대 4명). |
-| `SOLO 10` | 방 밖 | 혼자 하는 방을 만들고 바로 시작한다. 회원만 명예의 전당에 오르고, 비회원은 해 볼 수만 있다. 근무 시간은 5·10·15·20분 중 하나(생략하면 10분). 다시 하기(`RESTART` → `START`)도 된다. |
+| `SOLO 10` | 방 밖 | 혼자 하는 방을 만들고 바로 시작한다. 퇴근 뒤 `SHARE`로 이달의 명예의 전당에 올릴 수 있다. 근무 시간은 5·10·15·20분 중 하나(생략하면 10분). 다시 하기(`RESTART` → `START`)도 된다. |
 | `RESUME 123456 열쇠` | 방 밖 | 새로고침이나 연결 끊김 뒤 같은 자리로 돌아간다. 열쇠는 `state.token`이다. 실패하면 `resumeFailed`가 온다. |
 | `LENGTH 15` | 대기실, 방장 | 근무 시간(분, 1~60)을 정한다. |
 | `START` | 대기실, 방장 | 2명 이상이면 시작한다. |
@@ -318,19 +337,19 @@
 ```json
 {"type":"profile","member":true,"name":"김대리","customization":{"hair":"red"},"token":"Q2x…"}
 {"type":"profileFailed","message":"로그인이 풀렸습니다. 다시 로그인하세요."}
-{"type":"guest","name":"손님","notice":"비회원은 판 결과와 꾸미기가 저장되지 않고 명예의 전당에도 오르지 않습니다. 기록을 남기려면 회원 가입하세요."}
+{"type":"guest","name":"손님","notice":"내 기록은 이 기기에만 남아요. 혼자 하기는 퇴근 화면에서 이달의 명예의 전당에 올릴 수 있어요."}
 {"type":"loggedOut"}
 ```
 
 `token`은 `SIGNUP`·`LOGIN` 때만 온다. 이 기기의 자동 로그인 열쇠이니 localStorage에 보관하고 다른 사람에게 보여 주면 안 된다. 잃어버려도 이름과 비밀번호로 다시 로그인하면 된다.
 
-### `leaderboard` — 솔로 명예의 전당
+### `leaderboard` — 이달의 솔로 명예의 전당
 
-근무 시간(5·10·15·20분)별 상위 10명이다. 최고 수익률 순이고, 판 수와 평균 수익률을 함께 준다. 수익률 = (퇴근 순자산 − 시작 자금) ÷ 시작 자금 × 100.
+`month`(한국 시간 기준 "2026-11") 동안 **올린 판만**으로, 근무 시간(5·10·15·20분)별 상위 10명이다. 기기·이름(`name`#`tag`)마다 최고 수익률 순이고, 올린 판 수와 평균 수익률을 함께 준다. 수익률 = (퇴근 순자산 − 시작 자금) ÷ 시작 자금 × 100.
 
 ```json
-{"type":"leaderboard","boards":[
-  {"minutes":5,"entries":[{"rank":1,"name":"김대리","bestReturnPercent":12.34,"games":7,"averageReturnPercent":3.1}, …]},
+{"type":"leaderboard","month":"2026-11","boards":[
+  {"minutes":5,"entries":[{"rank":1,"name":"김대리","tag":"4821","bestReturnPercent":12.34,"games":7,"averageReturnPercent":3.1}, …]},
   {"minutes":10,"entries":[]}, …]}
 ```
 
@@ -364,6 +383,13 @@
  "trades":[{"second":17,"player":"P2","symbol":"MINT","side":"지정가 매수","quantity":5,"amountWon":4755,"returnPercent":3.2,"profitWon":152}, …],
  "news":[…],
  "leaks":[{"player":"P2","newsNumber":1,"text":"우리회사 회장님 은퇴설"}]}
+```
+
+혼자 하기에는 `share`가 더 있다: 이달 같은 근무 시간 판들(올렸든 안 올렸든) 가운데 이번 판의 위치(`rank`등, 상위 `topPercent`%)와 올렸는지. 판이 적을 때(10판 미만)는 화면이 "N판 중 R등"으로 보여 준다.
+
+```json
+"share":{"rank":7,"topPercent":12,"runs":57,"month":"2026-11","shared":null}
+"share":{"rank":7,"topPercent":12,"runs":57,"month":"2026-11","shared":{"name":"김대리","tag":"4821","rank":3}}
 ```
 
 순자산 = 현금 + 주식 청산가 − 대출 원리금 − 신용 빚이다. `startingCashWon`은 출근 때 받은 현금으로, 순자산에서 빼면 이번 판 손익이다. `standings`의 각 줄에는 `marginDebtWon`과 `bankrupt`(순자산 음수면 true)가 더 있다. 같은 금액이면 같은 순위다. 퇴근 뒤 재접속해도 다시 온다.

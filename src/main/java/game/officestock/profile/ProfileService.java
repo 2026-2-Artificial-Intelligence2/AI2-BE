@@ -217,12 +217,12 @@ public class ProfileService {
         return view(profile);
     }
 
-    /** 비회원 닉네임. 저장하지 않고, 회원 이름과 겹치지 않는지만 본다(회원 행세를 막는다). */
-    @Transactional(readOnly = true)
+    /**
+     * 닉네임 규칙만 본다(저장하지 않는다). 로그인 없이 하므로 다른 사람과 이름이 겹쳐도 되고,
+     * 명예의 전당에서는 기기 꼬리표(#1234)로 구분한다.
+     */
     public void checkGuestName(String name) {
         checkName(name);
-        if (profiles.existsByNameIgnoreCase(name))
-            throw new IllegalArgumentException("회원이 쓰는 이름입니다. 다른 닉네임을 정하세요: " + name);
     }
 
     private String issueToken(UUID profileId) {
