@@ -104,7 +104,9 @@ ipconfig getifaddr en0
 
 ### 클라우드에 올리기
 
-`Dockerfile`이 들어 있다. Render, Fly.io처럼 Docker 이미지를 받는 곳에 그대로 올릴 수 있다. 포트는 `PORT` 환경 변수로 받는다(없으면 8080).
+**지금 쓰는 방법: [deploy/README.md](deploy/README.md)** — Oracle Cloud 무료 서버 한 대에 화면(Caddy, HTTPS 자동)·게임 서버·PostgreSQL을 `docker compose`로 함께 띄운다. 화면과 서버가 같은 주소라 따로 맞출 것이 없다.
+
+아래는 게임 서버만 다른 곳에 올릴 때의 참고다. `Dockerfile`이 들어 있다. Render, Fly.io처럼 Docker 이미지를 받는 곳에 그대로 올릴 수 있다. 포트는 `PORT` 환경 변수로 받는다(없으면 8080).
 
 ```bash
 docker build -t office-stock .
