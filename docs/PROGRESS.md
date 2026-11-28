@@ -311,6 +311,13 @@
 - **안내:** `deploy/README.md`(가입·홈 리전, 서버 만들기, 포트 두 군데 열기, Docker, 두 저장소 받기, `.env`, 실행·업데이트·백업, 쉬는 무료 서버 회수 주의).
 - 확인: 내 컴퓨터 Docker에서 이 구성을 그대로 빌드·실행해 화면 → 게임 연결 → 혼자 하기 시작, 3D 모델 26개 포함 실패 요청 없음, 압축 동작을 봤다. 실제 Oracle 서버에는 아직 올리지 않았다.
 
+### 33단계: mollae.pro, GitHub Actions 이미지 빌드, 1GB 서버 ([AI2-BE PR #38](https://github.com/2026-2-Artificial-Intelligence2/AI2-BE/pull/38), [AI2-FE PR #30](https://github.com/2026-2-Artificial-Intelligence2/AI2-FE/pull/30))
+
+- **서버:** Oracle 무료 ARM(A1)은 "Out of capacity"로 만들 수 없어 AMD `E2.1.Micro`(1GB)로 만들었다. 1GB에서는 빌드할 수 없으므로 **GitHub Actions가 main마다 이미지를 만들어 ghcr.io에 올리고**(`ai2-be` 게임 서버, `ai2-fe` Caddy + 화면, x86, 커밋 해시 태그도), 서버는 `docker compose pull && up -d`만 한다. 화면 이미지는 비공개 저장소라 서버에서 `read:packages` 토큰으로 한 번 로그인한다.
+- **메모리:** 자바 `-Xmx320m`(SerialGC 등), PostgreSQL 공유 버퍼 32MB·연결 20개, 서버에 스왑 2GB. 로컬에서 4명 한 판에 셋 합쳐 약 340MB(게임 서버 278MB, DB 37MB, Caddy 21MB), 메모리 오류 없음.
+- **주소:** `mollae.pro`(www는 mollae.pro로 넘김). DNS A 레코드 `@`·`www` → 서버 IP.
+- 안내(`deploy/README.md`)를 E2.1.Micro·스왑·이미지 받기·토큰 로그인·DNS 순서로 고쳤다. 아직 실제 서버에서 확인하지 않았다.
+
 ## 3. 주요 결정과 근거
 
 
