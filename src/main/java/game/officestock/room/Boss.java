@@ -72,7 +72,8 @@ final class Boss {
     record Decision(String symbol, boolean buy, double fraction, String line) {}
 
     /** 실제로 체결된 부장님 매매. */
-    record Trade(String symbol, boolean buy, long quantity, long amountWon, long spotBeforeWon) {}
+    /** @param costWon 매도면 판 주식의 원가(수익률 계산용), 매수면 0 */
+    record Trade(String symbol, boolean buy, long quantity, long amountWon, long spotBeforeWon, long costWon) {}
 
     final PlayerWallet wallet;
     private final RandomGenerator random;
@@ -175,9 +176,10 @@ final class Boss {
             quantity = (long) Math.floor(wallet.sellable(decision.symbol()) * Math.max(0, Math.min(1, decision.fraction())));
         }
         if (quantity <= 0) return null;
+        long cost = decision.buy() ? 0 : wallet.costOf(decision.symbol(), quantity);
         try {
             var fill = decision.buy() ? wallet.buy(decision.symbol(), pool, quantity) : wallet.sell(decision.symbol(), pool, quantity);
-            return new Trade(decision.symbol(), decision.buy(), quantity, fill.netWon(decision.buy()), spot);
+            return new Trade(decision.symbol(), decision.buy(), quantity, fill.netWon(decision.buy()), spot, cost);
         } catch (RuntimeException e) {
             return null;   // 현금이 모자라는 등: 이번 판단은 건너뛴다.
         }

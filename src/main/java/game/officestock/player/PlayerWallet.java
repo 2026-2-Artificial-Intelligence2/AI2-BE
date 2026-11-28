@@ -117,6 +117,14 @@ public final class PlayerWallet {
         lockedShares.merge(symbol, -quantity, Long::sum);
     }
 
+    /** 이 수량을 지금 팔면 같이 빠질 원가(sell과 같은 계산). 매도 수익률에 쓴다. */
+    public long costOf(String symbol, long quantity) {
+        long owned = holdings.getOrDefault(symbol, 0L);
+        long basis = costBasis.getOrDefault(symbol, 0L);
+        if (owned <= 0 || quantity <= 0) return 0;
+        return quantity >= owned ? basis : Math.round((double) basis * quantity / owned);
+    }
+
     public Fill sell(String symbol, StockPool pool, long quantity) {
         long owned = holdings.getOrDefault(symbol, 0L);
         if (quantity > sellable(symbol))
