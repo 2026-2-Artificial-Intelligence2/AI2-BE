@@ -73,6 +73,18 @@ gh repo clone 2026-2-Artificial-Intelligence2/AI2-BE office-stock-BE
 gh repo clone 2026-2-Artificial-Intelligence2/AI2-FE office-stock-FE
 ```
 
+## 5-1. 도메인 연결 (mollae.pro)
+
+도메인을 산 곳(가비아, Cloudflare 등)의 **DNS 관리**에서 레코드 두 개를 넣는다. 값은 서버의 Public IP다.
+
+| 타입 | 이름(호스트) | 값 | TTL |
+|---|---|---|---|
+| A | `@` (비워 두는 곳도 있다) | `158.180.1.2` | 기본값(또는 300초) |
+| A | `www` | `158.180.1.2` | 기본값(또는 300초) |
+
+- **Cloudflare에서 관리한다면** 두 레코드의 프록시를 끈다(주황 구름 → 회색 구름, "DNS only"). 켜 두면 Caddy가 인증서를 받지 못할 수 있다.
+- 반영까지 몇 분~몇십 분 걸린다. 서버에서 `dig +short mollae.pro`(없으면 `nslookup mollae.pro`)가 서버 IP를 보여 주면 된다. **반영된 뒤에** 7번(실행)을 해야 인증서가 한 번에 받아진다.
+
 ## 6. 설정
 
 ```bash
@@ -81,7 +93,7 @@ cp .env.example .env
 nano .env
 ```
 
-- `SITE_ADDRESS`: 공인 IP의 점을 하이픈으로 바꾸고 `.sslip.io`를 붙인다. 예: `158.180.1.2` → `158-180-1-2.sslip.io`. 도메인이 있으면 그 도메인(DNS A 레코드를 이 IP로).
+- `SITE_ADDRESS`: `mollae.pro, www.mollae.pro`(기본값 그대로). www로 들어오면 `mollae.pro`로 넘어간다. 도메인 없이 시험할 때는 공인 IP의 점을 하이픈으로 바꾼 sslip.io 주소 하나만 적는다(예: `158-180-1-2.sslip.io`).
 - `DB_PASSWORD`: `openssl rand -hex 24`로 만든 값
 - `OPENAI_API_KEY`: 부장님 GPT 판단을 쓰려면 넣는다(비우면 규칙 판단). 판당 약 6원.
 
@@ -95,7 +107,7 @@ docker compose ps              # 셋 다 running인지
 docker compose logs -f server  # "Started OfficeStockApplication"이 보이면 준비 완료
 ```
 
-브라우저에서 `https://158-180-1-2.sslip.io`(내 주소)로 들어간다. 처음 접속 때 인증서를 받느라 몇 초 걸릴 수 있다.
+브라우저에서 **https://mollae.pro** 로 들어간다. 처음 접속 때 인증서를 받느라 몇 초 걸릴 수 있다.
 
 ## 업데이트
 
